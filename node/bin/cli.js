@@ -20,9 +20,10 @@ Basic options:
                           (basic mode only)
   --in-place              Overwrite the input HTML in place
   --dry-run               Report what would happen without writing files
-  --boost                 Write extracted selectors as .i2c-1:not(#\\#) so they
-                          beat framework class rules (useful when you keep the
-                          framework linked separately)
+  --no-boost              Write plain .i2c-1 selectors. By default extracted
+                          rules are written as .i2c-1:not(#\\#), which makes
+                          them as strong as the inline styles they replace
+                          (they beat class rules, and lose to !important)
 
 Resolve mode (fold Bootstrap / Tailwind CSS into your stylesheet):
   --resolve <src>         Tree-shake a stylesheet (file or URL) into the output,
@@ -36,9 +37,10 @@ Resolve mode (fold Bootstrap / Tailwind CSS into your stylesheet):
                           Available: bootstrap. Repeatable.
   --no-auto-safelist      Do not apply the bootstrap preset automatically when
                           Bootstrap JS or data-bs-* attributes are found
-  --no-layer              Do not wrap framework CSS in
-                          @layer inline2css-framework (layering keeps your
-                          extracted inline styles winning, like inline styles)
+  --layer                 Opt-in: wrap framework CSS in
+                          @layer inline2css-framework. Caveat: a layered
+                          !important rule beats your own CSS's !important
+                          rules, so this can change how they interact
   --keep-all-at-rules     Keep every @keyframes and @font-face, even unused ones
 
 Other:
@@ -69,10 +71,11 @@ const BOOL_FLAGS = {
   '--merge': ['merge', true],
   '--in-place': ['inPlace', true],
   '--dry-run': ['dryRun', true],
-  '--boost': ['boost', true],
+  '--no-boost': ['boost', false],
+  '--boost': ['boost', true], // harmless no-op alias: boosting is the default
   '--resolve-linked': ['resolveLinked', true],
   '--no-auto-safelist': ['autoSafelist', false],
-  '--no-layer': ['layer', false],
+  '--layer': ['layer', true],
   '--keep-all-at-rules': ['keepAllAtRules', true],
 };
 

@@ -1,6 +1,6 @@
 'use strict';
 
-// Tests for the v1.1 behavior spec (items 1 to 10).
+// Tests for the v1.1 behavior spec (items 1 to 10), amended by the 1.1.1 precedence redesign.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
@@ -139,18 +139,36 @@ describe('2. safelist', () => {
   });
 });
 
-describe('3. precedence: layering and --boost', () => {
-  test('resolve output wraps framework in @layer and puts inline rules after, unlayered', async () => {
+describe('3. precedence (1.1.1): no layer by default, boost by default, --layer opt-in', () => {
+  test('default resolve output is unlayered framework CSS, then boosted inline rules', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'fw.css'), '@charset "UTF-8";.navbar-nav .nav-link{padding:8px}');
     const input = path.join(dir, 'p.html');
     fs.writeFileSync(input, '<ul class="navbar-nav"><li><a class="nav-link" style="padding:0 40px">x</a></li></ul>');
     const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, ...quiet });
     const css = fs.readFileSync(r.cssPath, 'utf8');
-    assert.strictEqual(css, '@layer inline2css-framework{.navbar-nav .nav-link{padding:8px}}.i2c-1{padding:0 40px}');
+    assert.strictEqual(css, '.navbar-nav .nav-link{padding:8px}.i2c-1:not(#\\#){padding:0 40px}');
+    assert.doesNotMatch(css, /@layer|@charset/);
+    // The HTML class name is unchanged; only the CSS selector is boosted.
+    assert.match(fs.readFileSync(r.htmlPath, 'utf8'), /class="nav-link i2c-1"/);
   });
 
-  test('@import is hoisted to the very top with layer(), keeping media; @namespace hoisted; @charset dropped', () => {
+  test('without a layer: @import and @namespace hoisted unchanged, @charset dropped', () => {
+    const css =
+      '@charset "UTF-8";.a{color:red}@import url(x.css) screen and (min-width:1px);@import "y.css";@namespace svg url(http://www.w3.org/2000/svg);';
+    const r = resolveStylesheet(css, used('<i class="a"></i>'), { minify: true });
+    assert.strictEqual(
+      r.css,
+      '@import url(x.css) screen and (min-width:1px);' +
+        '@import "y.css";' +
+        '@namespace svg url(http://www.w3.org/2000/svg);' +
+        '.a{color:red}',
+    );
+    const kept = resolveStylesheet('@import url(t.css) layer(theme);', new Set(), { minify: true });
+    assert.strictEqual(kept.css, '@import url(t.css) layer(theme);');
+  });
+
+  test('layer: true (--layer): @import gets layer(), @namespace hoisted, framework wrapped', () => {
     const css =
       '@charset "UTF-8";.a{color:red}@import url(x.css) screen and (min-width:1px);@import "y.css";@namespace svg url(http://www.w3.org/2000/svg);';
     const r = resolveStylesheet(css, used('<i class="a"></i>'), { minify: true, layer: true });
@@ -163,21 +181,26 @@ describe('3. precedence: layering and --boost', () => {
     );
   });
 
-  test('an @import that already has layer(name) nests under the framework layer', () => {
+  test('--layer: an @import that already has layer(name) nests under the framework layer', () => {
     const r = resolveStylesheet('@import url(t.css) layer(theme);', new Set(), { minify: true, layer: true });
     assert.strictEqual(r.css, '@import url(t.css) layer(inline2css-framework.theme);');
   });
 
-  test('--no-layer (layer: false) emits plain framework CSS', async () => {
+  test('--layer opt-in in resolveFile keeps the 1.1.0 behavior, important layer included', async () => {
     const dir = tmp();
-    fs.writeFileSync(path.join(dir, 'fw.css'), '@import url(x.css);.a{b:c}');
+    fs.writeFileSync(path.join(dir, 'fw.css'), '@import url(x.css);.p-0{padding:0!important}');
     const input = path.join(dir, 'p.html');
-    fs.writeFileSync(input, '<p class="a" style="color:red">x</p>');
-    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, layer: false, ...quiet });
-    assert.strictEqual(fs.readFileSync(r.cssPath, 'utf8'), '@import url(x.css);.a{b:c}.i2c-1{color:red}');
+    fs.writeFileSync(input, '<p class="p-0" style="padding:5px !important;color:red">x</p>');
+    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, layer: true, ...quiet });
+    assert.strictEqual(
+      fs.readFileSync(r.cssPath, 'utf8'),
+      '@layer inline2css-important,inline2css-framework;@import url(x.css) layer(inline2css-framework);' +
+        '@layer inline2css-framework{.p-0{padding:0!important}}' +
+        '.i2c-1:not(#\\#){color:red}@layer inline2css-important{.i2c-1:not(#\\#){padding:5px !important}}',
+    );
   });
 
-  test('extracted !important declarations go to a layer ordered before the framework', async () => {
+  test('default: inline !important declarations stay in the same boosted rule', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'fw.css'), '.p-0{padding:0!important}');
     const input = path.join(dir, 'p.html');
@@ -185,36 +208,166 @@ describe('3. precedence: layering and --boost', () => {
     const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, ...quiet });
     assert.strictEqual(
       fs.readFileSync(r.cssPath, 'utf8'),
-      '@layer inline2css-important,inline2css-framework;@layer inline2css-framework{.p-0{padding:0!important}}' +
-        '.i2c-1{color:red}@layer inline2css-important{.i2c-1{padding:5px !important}}',
+      '.p-0{padding:0!important}.i2c-1:not(#\\#){padding:5px !important;color:red}',
     );
   });
 
-  test('--boost adds :not(#\\#) in basic mode', () => {
+  test('boost is the default in basic mode; boost: false writes plain selectors', () => {
     const { rules } = convert('<p style="color:red">x</p>');
+    assert.strictEqual(renderStylesheet(rules, true), '.i2c-1:not(#\\#){color:red}');
+    assert.match(renderStylesheet(rules, false), /^\.i2c-1:not\(#\\#\) \{/);
+    assert.strictEqual(renderStylesheet(rules, true, { boost: false }), '.i2c-1{color:red}');
     assert.strictEqual(renderStylesheet(rules, true, { boost: true }), '.i2c-1:not(#\\#){color:red}');
-    assert.match(renderStylesheet(rules, false, { boost: true }), /^\.i2c-1:not\(#\\#\) \{/);
   });
 
-  test('--boost in resolve mode, and the boosted selector parses as one id of specificity', async () => {
+  test('boost: false (--no-boost) in resolve mode; the boosted selector is one id of specificity', async () => {
     const dir = tmp();
     fs.writeFileSync(path.join(dir, 'fw.css'), '.a{b:c}');
     const input = path.join(dir, 'p.html');
     fs.writeFileSync(input, '<p class="a" style="color:red">x</p>');
-    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, boost: true, ...quiet });
-    const css = fs.readFileSync(r.cssPath, 'utf8');
-    assert.match(css, /\.i2c-1:not\(#\\#\)\{color:red\}$/);
+    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], minify: true, boost: false, ...quiet });
+    assert.strictEqual(fs.readFileSync(r.cssPath, 'utf8'), '.a{b:c}.i2c-1{color:red}');
     let ids = 0;
     csstree.walk(csstree.parse('.i2c-1:not(#\\#){}'), { visit: 'IdSelector', enter() { ids += 1; } });
     assert.strictEqual(ids, 1);
   });
 
-  test('basic convertFile honors boost', () => {
+  test('basic convertFile boosts by default and honors boost: false', () => {
     const dir = tmp();
     const input = path.join(dir, 'p.html');
     fs.writeFileSync(input, '<p style="color:red">x</p>');
-    const r = require('../src/index').convertFile(input, { boost: true, minify: true });
+    const { convertFile } = require('../src/index');
+    const r = convertFile(input, { minify: true });
     assert.strictEqual(fs.readFileSync(r.cssPath, 'utf8'), '.i2c-1:not(#\\#){color:red}');
+    const r2 = convertFile(input, { minify: true, boost: false, css: path.join(dir, 'plain.css') });
+    assert.strictEqual(fs.readFileSync(r2.cssPath, 'utf8'), '.i2c-1{color:red}');
+  });
+
+  test('--merge reads both boosted and plain selectors', () => {
+    const { convertFile } = require('../src/index');
+    for (const existing of ['.brand:not(#\\#){color:red}.old{padding:1px}', '.brand{color:red}.old:not(#\\#){padding:1px}']) {
+      const dir = tmp();
+      const input = path.join(dir, 'p.html');
+      fs.writeFileSync(input, '<p style="color:red">x</p><i style="padding:1px">y</i>');
+      fs.writeFileSync(path.join(dir, 'styles.css'), existing);
+      const r = convertFile(input, { merge: true, minify: true });
+      const out = fs.readFileSync(r.htmlPath, 'utf8');
+      assert.match(out, /<p class="brand">/);
+      assert.match(out, /<i class="old">/);
+    }
+  });
+});
+
+describe('3b. output link position (1.1.1)', () => {
+  test('output <link> takes the place of the first removed framework link', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{color:red}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(
+      input,
+      '<html><head><meta charset="utf-8"><link rel="stylesheet" href="fw.css"><meta name="x" content="y">' +
+        '<link rel="stylesheet" href="https://fonts.example/f.css"><style>.a{color:blue}</style></head>' +
+        '<body><p class="a">x</p></body></html>',
+    );
+    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], ...quiet });
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    assert.match(
+      out,
+      /<meta charset="utf-8"><link rel="stylesheet" href="styles\.css"><meta name="x" content="y"><link rel="stylesheet" href="https:\/\/fonts\.example\/f\.css"><style>/,
+    );
+    assert.doesNotMatch(out, /fw\.css/);
+  });
+
+  test('a link in <body> is replaced in place (same parent)', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{color:red}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(input, '<html><head></head><body><div id="w"><link rel="stylesheet" href="fw.css"></div><p class="a">x</p></body></html>');
+    const r = await resolveFile(input, { resolveLinked: true, ...quiet });
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    assert.match(out, /<div id="w"><link rel="stylesheet" href="styles\.css"><\/div>/);
+    assert.match(out, /<head><\/head>/);
+  });
+
+  test('append fallback: no link removed means the link goes to the end of <head>', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{color:red}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(input, '<html><head><title>t</title><style>.a{x:y}</style></head><body><p class="a">x</p></body></html>');
+    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], ...quiet });
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    assert.match(out, /<style>\.a\{x:y\}<\/style><link rel="stylesheet" href="styles\.css"><\/head>/);
+  });
+
+  test('contiguous removed links: one link at the first position, no warning', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'a.css'), '.a{color:red}');
+    fs.writeFileSync(path.join(dir, 'b.css'), '.b{color:blue}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(
+      input,
+      '<html><head><link rel="stylesheet" href="a.css"><meta name="m"><link rel="stylesheet" href="b.css">' +
+        '<style>.a{x:y}</style></head><body><p class="a b">x</p></body></html>',
+    );
+    const notes = [];
+    const r = await resolveFile(input, { resolveLinked: true, log: (m) => notes.push(m) });
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    assert.match(out, /<head><link rel="stylesheet" href="styles\.css"><meta name="m"><style>/);
+    assert.deepStrictEqual(notes, []);
+  });
+
+  test('non-contiguous removed links print one warn: line', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'a.css'), '.a{color:red}');
+    fs.writeFileSync(path.join(dir, 'b.css'), '.b{color:blue}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(
+      input,
+      '<html><head><link rel="stylesheet" href="a.css"><style>.a{x:y}</style><link rel="stylesheet" href="b.css">' +
+        '</head><body><p class="a b">x</p></body></html>',
+    );
+    const notes = [];
+    const r = await resolveFile(input, { resolveLinked: true, log: (m) => notes.push(m) });
+    assert.strictEqual(notes.length, 1);
+    assert.match(notes[0], /^warn: .*cascade order/);
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    assert.match(out, /<head><link rel="stylesheet" href="styles\.css"><style>\.a\{x:y\}<\/style><\/head>/);
+
+    // A kept (non-resolved) stylesheet link between them also counts.
+    fs.writeFileSync(
+      input,
+      '<html><head><link rel="stylesheet" href="a.css"><link rel="stylesheet" href="site.css">' +
+        '<link rel="stylesheet" href="b.css"></head><body><p class="a b">x</p></body></html>',
+    );
+    const notes2 = [];
+    await resolveFile(input, {
+      resolve: [path.join(dir, 'a.css'), path.join(dir, 'b.css')],
+      log: (m) => notes2.push(m),
+    });
+    assert.strictEqual(notes2.filter((m) => m.startsWith('warn:')).length, 1);
+  });
+
+  test('regression (Bootstrap Pricing): page <style> with !important stays after the output link', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'bootstrap.css'), '.d-none{display:none!important}.bi{width:1em}.unused{color:red}');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(
+      input,
+      '<html><head><link href="bootstrap.css" rel="stylesheet"><meta name="theme-color" content="#712cf9">' +
+        '<style>.menu .active .bi{display:block!important}</style></head><body>' +
+        '<ul class="menu"><li class="active"><svg class="bi d-none" style="margin:2px"></svg></li></ul></body></html>',
+    );
+    const r = await resolveFile(input, { resolveLinked: true, minify: true, ...quiet });
+    const out = fs.readFileSync(r.htmlPath, 'utf8');
+    const link = out.indexOf('<link rel="stylesheet" href="styles.css">');
+    const style = out.indexOf('<style>.menu .active .bi{display:block!important}</style>');
+    assert.ok(link !== -1 && style !== -1, out);
+    assert.ok(link < style, 'output link must come before the page <style>');
+    assert.doesNotMatch(out, /bootstrap\.css/);
+    const css = fs.readFileSync(r.cssPath, 'utf8');
+    // Unlayered: the page's later !important (0,3,0) keeps beating .d-none's !important (0,1,0).
+    assert.doesNotMatch(css, /@layer/);
+    assert.strictEqual(css, '.d-none{display:none!important}.bi{width:1em}.i2c-1:not(#\\#){margin:2px}');
   });
 });
 
@@ -301,7 +454,7 @@ describe('5. url() rewriting', () => {
     assert.match(css, /url\(data:image\/png;base64,AAAA\)/);
     assert.match(css, /url\(\/abs\.png\)/);
     assert.match(css, /--icon:url\(vendor\/css\/icons\/i\.svg\)/);
-    assert.match(css, /^@import url\(vendor\/css\/theme\.css\) layer\(inline2css-framework\);/);
+    assert.match(css, /^@import "vendor\/css\/theme\.css";/);
   });
 
   test('http(s) source: relative urls become absolute (mocked fetch)', async () => {
@@ -394,7 +547,7 @@ describe('6. link removal (regression)', () => {
     assert.match(out, /fav\.ico/);
     assert.strictEqual((out.match(/rel="stylesheet"/g) || []).length, 1);
     assert.match(out, /href="out\.css"/);
-    assert.strictEqual(fs.readFileSync(r.cssPath, 'utf8'), '@layer inline2css-framework{.a{color:red}.b{color:blue}}');
+    assert.strictEqual(fs.readFileSync(r.cssPath, 'utf8'), '.a{color:red}.b{color:blue}');
   });
 });
 
@@ -415,7 +568,7 @@ describe('7. resolve on a directory', () => {
     assert.strictEqual(r.files.length, 2);
     assert.strictEqual(r.inlineRules, 1); // deduped across pages
     const css = fs.readFileSync(r.cssPath, 'utf8');
-    assert.strictEqual(css, '@layer inline2css-framework{.one{a:1}.two{b:2}}.i2c-1{color:red}');
+    assert.strictEqual(css, '.one{a:1}.two{b:2}.i2c-1:not(#\\#){color:red}');
     const a = fs.readFileSync(path.join(dir, 'index.cleaned.html'), 'utf8');
     const b = fs.readFileSync(path.join(dir, 'docs', 'b.cleaned.htm'), 'utf8');
     assert.match(a, /href="assets\/site\.css"/);
@@ -442,6 +595,16 @@ describe('7. resolve on a directory', () => {
     await resolveDirectory(dir, { resolve: [path.join(dir, 'fw.css')], ...quiet });
     const r = await resolveDirectory(dir, { resolve: [path.join(dir, 'fw.css')], ...quiet });
     assert.strictEqual(r.files.length, 1);
+  });
+});
+
+describe('@property initial-value is kept verbatim (Tailwind v4 shadows)', () => {
+  test('whitespace inside initial-value survives, minified and pretty', () => {
+    const css = '@property --tw-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}.a{color:red}';
+    const min = resolveStylesheet(css, used('<i class="a"></i>'), { minify: true });
+    assert.match(min.css, /initial-value:0 0 #0000\}/);
+    const pretty = resolveStylesheet(css, used('<i class="a"></i>'));
+    assert.match(pretty.css, /initial-value:0 0 #0000\n/);
   });
 });
 
@@ -478,18 +641,32 @@ describe('8. safe pretty printer', () => {
 });
 
 describe('10. output order', () => {
-  test('hoisted @import / @namespace, then layered framework, then inline rules (pretty)', async () => {
+  test('hoisted @import / @namespace, then framework rules in source order, then inline rules (pretty)', async () => {
     const dir = tmp();
-    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{b:c}@namespace svg url(http://www.w3.org/2000/svg);@import url(z.css);');
+    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{b:c}@namespace svg url(http://www.w3.org/2000/svg);.z{d:e}@import url(z.css);');
     const input = path.join(dir, 'p.html');
-    fs.writeFileSync(input, '<p class="a" style="color:red">x</p>');
+    fs.writeFileSync(input, '<p class="a z" style="color:red">x</p>');
     const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], ...quiet });
     const css = fs.readFileSync(r.cssPath, 'utf8');
     const idx = (s) => css.indexOf(s);
     assert.strictEqual(idx('@import'), 0);
     assert.ok(idx('@import') < idx('@namespace'));
-    assert.ok(idx('@namespace') < idx('@layer inline2css-framework'));
-    assert.ok(idx('@layer inline2css-framework') < idx('.i2c-1'));
-    assert.match(css, /\}\n\n\.i2c-1 \{\n    color: red;\n\}\n$/);
+    assert.ok(idx('@namespace') < idx('.a {'));
+    assert.ok(idx('.a {') < idx('.z {'));
+    assert.ok(idx('.z {') < idx('.i2c-1'));
+    assert.doesNotMatch(css, /@layer/);
+    assert.match(css, /\}\n\n\.i2c-1:not\(#\\#\) \{\n    color: red;\n\}\n$/);
+  });
+
+  test('--layer order: hoisted imports, layered framework, inline rules', async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, 'fw.css'), '.a{b:c}@import url(z.css);');
+    const input = path.join(dir, 'p.html');
+    fs.writeFileSync(input, '<p class="a" style="color:red">x</p>');
+    const r = await resolveFile(input, { resolve: [path.join(dir, 'fw.css')], layer: true, ...quiet });
+    const css = fs.readFileSync(r.cssPath, 'utf8');
+    const idx = (s) => css.indexOf(s);
+    assert.strictEqual(idx('@import url(z.css) layer(inline2css-framework);'), 0);
+    assert.ok(idx('@layer inline2css-framework {') < idx('.i2c-1:not'));
   });
 });

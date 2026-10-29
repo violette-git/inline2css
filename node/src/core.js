@@ -95,10 +95,10 @@ function makeClassName(decls, key, strategy, prefix, seq) {
 const BOOST_SUFFIX = ':not(#\\#)';
 
 /**
- * Render one CSS rule, optionally minified. With `boost`, the selector gets
- * BOOST_SUFFIX so it beats ordinary framework class selectors.
+ * Render one CSS rule, optionally minified. With `boost` (the default), the
+ * selector gets BOOST_SUFFIX so it beats ordinary framework class selectors.
  */
-function renderRule(className, decls, minify, boost = false) {
+function renderRule(className, decls, minify, boost = true) {
   const sel = `.${className}${boost ? BOOST_SUFFIX : ''}`;
   if (minify) {
     const body = decls.map((d) => `${d.prop}:${d.value}`).join(';');
@@ -181,12 +181,14 @@ function convert(html, opts = {}) {
  * Build a stylesheet string from collected rules.
  * @param {Array<{className:string, decls:Array}>} rules
  * @param {boolean} [minify=false]
- * @param {{boost?: boolean}} [opts]
+ * @param {{boost?: boolean}} [opts]  boost defaults to true (selectors get
+ *   BOOST_SUFFIX so they are as strong as the inline styles they replace);
+ *   pass boost: false for plain `.class` selectors.
  */
 function renderStylesheet(rules, minify = false, opts = {}) {
   if (rules.length === 0) return '';
   const sep = minify ? '' : '\n\n';
-  const boost = !!(opts && opts.boost);
+  const boost = !(opts && opts.boost === false);
   const css = rules.map((r) => renderRule(r.className, r.decls, minify, boost)).join(sep);
   return minify ? css : css + '\n';
 }

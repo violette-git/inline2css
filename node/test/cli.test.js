@@ -20,7 +20,7 @@ test('--version and -v print the package version', () => {
     assert.strictEqual(r.status, 0);
     assert.strictEqual(r.stdout.trim(), pkg.version);
   }
-  assert.strictEqual(pkg.version, '1.1.0');
+  assert.strictEqual(pkg.version, '1.1.1');
   assert.strictEqual(pkg.engines.node, '>=18');
 });
 
@@ -29,11 +29,12 @@ test('--help lists every flag', () => {
   assert.strictEqual(r.status, 0);
   for (const f of [
     '--css', '--html-out', '--naming', '--prefix', '--minify', '--merge', '--in-place', '--dry-run',
-    '--boost', '--resolve ', '--resolve-linked', '--safelist ', '--safelist-preset', '--no-auto-safelist',
-    '--no-layer', '--keep-all-at-rules', '--version', '--help',
+    '--no-boost', '--resolve ', '--resolve-linked', '--safelist ', '--safelist-preset', '--no-auto-safelist',
+    '--layer', '--keep-all-at-rules', '--version', '--help',
   ]) {
     assert.ok(r.stdout.includes(f), `help is missing ${f}`);
   }
+  assert.doesNotMatch(r.stdout, /--no-layer/);
   assert.doesNotMatch(r.stdout, /--keep-at-rules|--no-keep-at-rules/);
   assert.doesNotMatch(r.stdout, /\u2014/); // no em-dashes
 });
@@ -44,6 +45,9 @@ test('unknown flags give a clear error and exit 2', () => {
   assert.match(r.stderr, /Unknown option: --frobnicate/);
   const old = run(['page.html', '--no-keep-at-rules']);
   assert.strictEqual(old.status, 2);
+  const noLayer = run(['page.html', '--no-layer']);
+  assert.strictEqual(noLayer.status, 2);
+  assert.match(noLayer.stderr, /Unknown option: --no-layer/);
 });
 
 test('missing input exits 1', () => {
@@ -61,19 +65,56 @@ test('a value flag without a value is an error', () => {
   assert.match(r.stderr, /--css needs a value/);
 });
 
-test('resolve flags end to end: safelist regex, --no-layer, --boost, --keep-all-at-rules', () => {
+test('resolve flags end to end: safelist regex, defaults (no layer, boost), --keep-all-at-rules', () => {
   const dir = tmp();
   fs.writeFileSync(path.join(dir, 'fw.css'), '@keyframes k{to{opacity:0}}.a{b:c}.tooltip-x{d:e}.gone{f:g}');
   fs.writeFileSync(path.join(dir, 'p.html'), '<p class="a" style="color:red">x</p>');
-  const r = run(
-    ['p.html', '--resolve', 'fw.css', '--safelist', '/^tooltip/', '--no-layer', '--boost', '--keep-all-at-rules', '--minify'],
-    dir,
-  );
+  const r = run(['p.html', '--resolve', 'fw.css', '--safelist', '/^tooltip/', '--keep-all-at-rules', '--minify'], dir);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(
     fs.readFileSync(path.join(dir, 'styles.css'), 'utf8'),
     '@keyframes k{to{opacity:0}}.a{b:c}.tooltip-x{d:e}.i2c-1:not(#\\#){color:red}',
   );
+  // --boost is a harmless no-op alias of the default.
+  const r2 = run(['p.html', '--resolve', 'fw.css', '--boost', '--minify'], dir);
+  assert.strictEqual(r2.status, 0, r2.stderr);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'styles.css'), 'utf8'), '.a{b:c}.i2c-1:not(#\\#){color:red}');
+});
+
+test('--no-boost and --layer from the CLI', () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'fw.css'), '.a{b:c}');
+  fs.writeFileSync(path.join(dir, 'p.html'), '<p class="a" style="color:red">x</p>');
+  const r = run(['p.html', '--resolve', 'fw.css', '--no-boost', '--minify'], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'styles.css'), 'utf8'), '.a{b:c}.i2c-1{color:red}');
+  const r2 = run(['p.html', '--resolve', 'fw.css', '--layer', '--minify'], dir);
+  assert.strictEqual(r2.status, 0, r2.stderr);
+  assert.strictEqual(
+    fs.readFileSync(path.join(dir, 'styles.css'), 'utf8'),
+    '@layer inline2css-framework{.a{b:c}}.i2c-1:not(#\\#){color:red}',
+  );
+  const b = run(['p.html', '--no-boost', '--minify', '--css', 'basic.css'], dir);
+  assert.strictEqual(b.status, 0, b.stderr);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'basic.css'), 'utf8'), '.i2c-1{color:red}');
+  const b2 = run(['p.html', '--minify', '--css', 'basic2.css'], dir);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'basic2.css'), 'utf8'), '.i2c-1:not(#\\#){color:red}');
+});
+
+test('non-contiguous framework links print one warn: line', () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'a.css'), '.a{color:red}');
+  fs.writeFileSync(path.join(dir, 'b.css'), '.b{color:blue}');
+  fs.writeFileSync(
+    path.join(dir, 'p.html'),
+    '<html><head><link rel="stylesheet" href="a.css"><style>.a{color:green}</style>' +
+      '<link rel="stylesheet" href="b.css"></head><body><p class="a b">x</p></body></html>',
+  );
+  const r = run(['p.html', '--resolve-linked'], dir);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const warns = r.stderr.split('\n').filter((l) => l.startsWith('warn:'));
+  assert.strictEqual(warns.length, 1, r.stderr);
+  assert.match(warns[0], /cascade order/);
 });
 
 test('auto-detect prints one note line; --no-auto-safelist silences it', () => {

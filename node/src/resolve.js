@@ -464,7 +464,7 @@ function rewriteUrls(ast, ctx) {
 /**
  * Remove top-level @charset, @import and @namespace from the sheet. @import
  * and @namespace are returned as strings for hoisting; @import gets
- * `layer(<layer>)` when a layer name is given.
+ * `layer(<layer>)` only when a layer name is given (the opt-in --layer).
  */
 function hoistTopLevel(ast, layer) {
   const imports = [];
@@ -478,6 +478,8 @@ function hoistTopLevel(ast, layer) {
       namespaces.push(csstree.generate(node).replace(/;?$/, ';'));
       list.remove(item);
     } else if (name === 'import') {
+      // Without a layer the @import is hoisted unchanged (same target form,
+      // same layer / media parts).
       imports.push(importWithLayer(node, layer));
       list.remove(item);
     }
@@ -488,11 +490,13 @@ function hoistTopLevel(ast, layer) {
 function importWithLayer(node, layer) {
   const parts = [];
   let target = null;
+  let targetNode = null;
   let existingLayer = null;
   let hasLayer = false;
   (node.prelude && node.prelude.children ? node.prelude.children.toArray() : []).forEach((c) => {
     if (!target && (c.type === 'Url' || c.type === 'String')) {
       target = c.value;
+      targetNode = c;
     } else if (c.type === 'Identifier' && /^layer$/i.test(c.name)) {
       hasLayer = true;
     } else if (c.type === 'Function' && /^layer$/i.test(c.name)) {
@@ -503,7 +507,7 @@ function importWithLayer(node, layer) {
     }
   });
   if (target === null) return csstree.generate(node).replace(/;?$/, ';');
-  const url = csstree.generate({ type: 'Url', value: target });
+  const url = layer ? csstree.generate({ type: 'Url', value: target }) : csstree.generate(targetNode);
   let layerPart = '';
   if (layer) layerPart = `layer(${existingLayer ? `${layer}.${existingLayer}` : layer})`;
   else if (existingLayer) layerPart = `layer(${existingLayer})`;
@@ -588,16 +592,46 @@ function prettifyCss(min) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Parse one source sheet. css-tree re-serializes parsed values with minimal
+ * whitespace (`0 0 #0000` becomes `0 0#0000`). That is harmless for normal
+ * properties but not for `@property { initial-value: ... }`: a registered
+ * custom property with `syntax: "*"` computes to its token stream as written,
+ * so the original text of that descriptor is kept verbatim (as a Raw node).
+ */
+function parseSource(cssText) {
+  const text = String(cssText);
+  if (!/@property/i.test(text)) return csstree.parse(text);
+  const ast = csstree.parse(text, { positions: true });
+  csstree.walk(ast, {
+    visit: 'Declaration',
+    enter(node) {
+      if (!this.atrule || !/^property$/i.test(this.atrule.name)) return;
+      if (!/^initial-value$/i.test(node.property) || !node.value || !node.value.loc) return;
+      const raw = text.slice(node.value.loc.start.offset, node.value.loc.end.offset).trim();
+      node.value = { type: 'Raw', value: raw };
+    },
+  });
+  return ast;
+}
+
+/**
  * Build the combined stylesheet from framework sources plus extracted inline
- * rules. Order: hoisted @import / @namespace, then the (optionally layered)
- * framework block, then the extracted inline rules.
+ * rules. Order: hoisted @import / @namespace, then the framework rules in
+ * original source order (unlayered by default, wrapped in
+ * @layer inline2css-framework only when opts.layer is set), then the
+ * extracted inline rules.
+ *
+ * Framework CSS is NOT layered by default: a layered !important declaration
+ * beats every unlayered !important one, so layering would flip !important
+ * precedence against the page's own CSS. Extracted rules are boosted instead
+ * (`.i2c-1:not(#\#)`), which beats class-only rules like an inline style did.
  *
  * @param {Array<{css:string, from?:string}>} sources
  * @param {{has(name:string):boolean}} pool
  * @param {object} [opts]
  * @param {string}  [opts.to]                     output css path (for url rewriting)
  * @param {Array<{className:string,decls:Array}>} [opts.inlineRules]  extracted rules, emitted last
- * @param {boolean} [opts.boost=false]            add :not(#\\#) to extracted selectors
+ * @param {boolean} [opts.boost=true]             add :not(#\\#) to extracted selectors (false: plain .class)
  * @param {Array<{prop:string,value:string}>} [opts.inlineDecls]  extra usage for at-rule pruning
  * @param {boolean|string} [opts.layer=false]     true or a layer name to wrap the framework
  * @param {boolean} [opts.keepAllAtRules=false]
@@ -608,11 +642,11 @@ function buildStylesheet(sources, pool, opts = {}) {
   const {
     to,
     inlineRules = [],
-    boost = false,
     keepAllAtRules = false,
     keepElementSelectors = true,
     minify = false,
   } = opts;
+  const boost = opts.boost !== false;
   const layer = opts.layer === true ? FRAMEWORK_LAYER : opts.layer || null;
   const inlineDecls = [...(opts.inlineDecls || [])];
   for (const r of inlineRules) inlineDecls.push(...r.decls);
@@ -620,7 +654,7 @@ function buildStylesheet(sources, pool, opts = {}) {
   const sheet = csstree.parse('');
   for (const src of sources) {
     if (!src || !String(src.css || '').trim()) continue;
-    const ast = csstree.parse(src.css);
+    const ast = parseSource(src.css);
     rewriteUrls(ast, { from: src.from, to });
     sheet.children.appendList(ast.children);
   }
@@ -632,6 +666,8 @@ function buildStylesheet(sources, pool, opts = {}) {
 
   // Split extracted inline rules: when layering, !important declarations go
   // to a layer ordered before the framework layer (see IMPORTANT_LAYER).
+  // Without a layer they stay in the same (boosted) rule: an important
+  // (1,1,0) selector beats class-only important rules, like inline !important.
   const isImportant = (d) => /!\s*important\s*$/i.test(d.value);
   let normalRules = inlineRules;
   let importantRules = [];

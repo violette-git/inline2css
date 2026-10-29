@@ -84,8 +84,8 @@ test('semantic naming derives from first declaration', () => {
 
 test('minify produces compact rules', () => {
   const { rules } = convert('<p style="color:red;padding:1px">x</p>');
-  const css = renderStylesheet(rules, true);
-  assert.strictEqual(css, '.i2c-1{color:red;padding:1px}');
+  assert.strictEqual(renderStylesheet(rules, true), '.i2c-1:not(#\\#){color:red;padding:1px}');
+  assert.strictEqual(renderStylesheet(rules, true, { boost: false }), '.i2c-1{color:red;padding:1px}');
 });
 
 test('parseExistingCss round-trips single-class rules', () => {
@@ -128,7 +128,7 @@ test('convertDirectory shares one stylesheet across files', () => {
   assert.strictEqual(r.files.length, 2);
 });
 
-test('parseExistingCss reads boosted selectors so --merge --boost reuses them', () => {
+test('parseExistingCss reads boosted selectors (the default) so --merge reuses them', () => {
   const reg = parseExistingCss('.brand:not(#\\#) { color: red; }');
   assert.strictEqual(reg.size, 1);
   assert.strictEqual(Array.from(reg.values())[0].className, 'brand');
