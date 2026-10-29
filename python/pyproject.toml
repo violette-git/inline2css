@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "inline2css"
-version = "1.0.0"
+version = "1.1.0"
 description = "Extract inline HTML style attributes into an external stylesheet and strip them from the markup."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [{ name = "Gaytan G. Glover Jr." }]
-keywords = ["css", "inline-styles", "html", "refactor", "stylesheet", "extract"]
+keywords = ["css", "inline-styles", "html", "refactor", "stylesheet", "extract", "bootstrap", "tailwind", "tree-shaking"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Topic :: Text Processing :: Markup :: HTML",
 ]
-dependencies = ["beautifulsoup4>=4.9"]
+dependencies = ["beautifulsoup4>=4.9", "tinycss2>=1.2"]
 
 [project.urls]
 Homepage = "https://github.com/violette-git/inline2css"

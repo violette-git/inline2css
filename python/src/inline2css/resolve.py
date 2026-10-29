@@ -21,7 +21,10 @@ import tinycss2
 from tinycss2 import ast as css_ast
 
 LAYER_NAME = "inline2css-framework"
+# Layer for extracted inline declarations marked !important (declared first).
+IMPORTANT_LAYER = "inline2css-important"
 BOOST_SUFFIX = r":not(#\#)"
+_IMPORTANT = re.compile(r"!\s*important\s*$", re.I)
 
 BOOTSTRAP_SAFELIST: Tuple[str, ...] = (
     "show", "showing", "hiding", "collapse", "collapsing", "collapse-horizontal",
@@ -112,10 +115,10 @@ def preset_entries(names: Iterable[str]) -> List[str]:
 
 
 def _soup(html_or_soup):
-    from bs4 import BeautifulSoup
+    from .core import make_soup
 
     if isinstance(html_or_soup, str):
-        return BeautifulSoup(html_or_soup, "html.parser")
+        return make_soup(html_or_soup)
     return html_or_soup
 
 
@@ -159,7 +162,7 @@ def _split_commas(tokens: Sequence) -> List[list]:
 
 
 def _meaningful(tokens: Sequence, i: int):
-    """Next token at or after i (no whitespace skipping: selectors are tight)."""
+    """Token at index i, or None (no whitespace skipping: selectors are tight)."""
     return tokens[i] if i < len(tokens) else None
 
 
@@ -275,13 +278,12 @@ def _norm(tokens, url_fn) -> list:
                                      'url("%s")' % tinycss2.serializer.serialize_string_value(new))
         elif kind == "function":
             args = t.arguments
-            if url_fn and t.lower_name == "url":
+            if url_fn and t.lower_name in ("url", "image-set", "-webkit-image-set"):
                 strs = [a for a in args if a.type == "string"]
-                if len(strs) == 1:
-                    new = url_fn(strs[0].value)
-                    args = [css_ast.StringToken(a.source_line, a.source_column, new,
-                                                '"%s"' % tinycss2.serializer.serialize_string_value(new))
-                            if a is strs[0] else a for a in args]
+                if t.lower_name != "url" or len(strs) == 1:
+                    args = [css_ast.StringToken(a.source_line, a.source_column, url_fn(a.value),
+                                                '"%s"' % tinycss2.serializer.serialize_string_value(url_fn(a.value)))
+                            if a.type == "string" else a for a in args]
             t = css_ast.FunctionBlock(t.source_line, t.source_column, t.name, _norm(args, url_fn))
         elif kind == "() block":
             t = css_ast.ParenthesesBlock(t.source_line, t.source_column, _norm(t.content, url_fn))
@@ -333,6 +335,7 @@ class _Ctx:
     url_fn: Optional[Callable[[str], str]]
     imports: list
     namespaces: list
+    keep_elements: bool = True
     kept: int = 0
     dropped: int = 0
 
@@ -420,7 +423,7 @@ def _prune(nodes, ctx: _Ctx, in_style: bool, layer: bool) -> list:
             continue
         if t == "qualified-rule":
             selectors = _split_commas(node.prelude)
-            keep = [s for s in selectors if selector_is_used(s, ctx.pool)]
+            keep = [s for s in selectors if selector_is_used(s, ctx.pool, ctx.keep_elements)]
             if not keep:
                 ctx.dropped += 1
                 continue
@@ -487,9 +490,26 @@ def _walk_decls(items):
         if isinstance(item, Decl):
             yield item
         elif isinstance(item, (StyleRule, AtRule)) and item.children:
-            if isinstance(item, AtRule) and (item.keyword in _KEYFRAMES or item.keyword == "font-face"):
+            if isinstance(item, AtRule) and item.keyword == "font-face":
                 continue
             yield from _walk_decls(item.children)
+
+
+_VAR_RE = re.compile(r"var\(\s*(--[^,\s)]+)")
+
+
+def _expand_vars(value: str, custom: dict, seen: Optional[Set[str]] = None) -> str:
+    """Append the values of every custom property the value references via
+    var(), recursively, so indirect references count."""
+    seen = set() if seen is None else seen
+    out = value
+    for name in _VAR_RE.findall(value):
+        if name in seen:
+            continue
+        seen.add(name)
+        for v in custom.get(name, ()):
+            out += ", " + _expand_vars(v, custom, seen)
+    return out
 
 
 def _idents(value: str) -> Set[str]:
@@ -554,17 +574,26 @@ def _fontface_family(item: AtRule) -> Optional[str]:
 
 def prune_at_rules(items: list, extra_decls: Iterable[Decl] = ()) -> Tuple[list, int]:
     """Drop @keyframes not referenced by an animation value and @font-face
-    whose family is not referenced by a font/font-family value. Custom
-    property values count as references too (Tailwind uses var(--animate-x))."""
-    anim: Set[str] = set()
-    fonts: Set[str] = set()
+    whose family is not referenced by a font/font-family value. var()
+    references are followed through custom properties (Tailwind uses
+    animation: var(--animate-pulse))."""
+    custom: dict = {}
+    anim_values: List[str] = []
+    font_values: List[str] = []
     for d in list(_walk_decls(items)) + list(extra_decls):
         name = d.name.lower()
-        custom = d.name.startswith("--")
-        if custom or _ANIM_PROPS.match(name):
-            anim |= _idents(d.value)
-        if custom or name in _FONT_PROPS:
-            fonts |= _families(d.value)
+        if d.name.startswith("--"):
+            custom.setdefault(d.name, []).append(d.value)
+        elif _ANIM_PROPS.match(name):
+            anim_values.append(d.value)
+        elif name in _FONT_PROPS:
+            font_values.append(d.value)
+    anim: Set[str] = set()
+    fonts: Set[str] = set()
+    for v in anim_values:
+        anim |= _idents(_expand_vars(v, custom))
+    for v in font_values:
+        fonts |= _families(_expand_vars(v, custom))
     removed = 0
 
     def visit(nodes):
@@ -677,6 +706,7 @@ def resolve_stylesheet(
     css_out: Optional[str] = None,
     inline_rules: Sequence = (),
     boost: bool = False,
+    keep_element_selectors: bool = True,
 ) -> ResolveResult:
     """Tree-shake ``css`` down to the rules that can match the class pool.
 
@@ -684,10 +714,17 @@ def resolve_stylesheet(
     origin is the file path or URL it was loaded from (used to rewrite
     relative url() values against ``css_out``). ``used`` is a set of class
     names (or a ClassPool); ``safelist`` entries are added to it.
+    ``keep_element_selectors=False`` also drops selectors with no class
+    requirement (body, :root, a:hover).
     ``inline_rules`` (core.Rule objects) are emitted after the framework
     block, unlayered, and count as references for @keyframes / @font-face.
+    With ``layer`` on, their !important declarations instead go last, into
+    ``@layer inline2css-important``, which a leading
+    ``@layer inline2css-important,inline2css-framework;`` orders first.
     """
-    from .core import render_stylesheet
+    from collections import OrderedDict
+
+    from .core import Rule, render_stylesheet
 
     pool = ClassPool()
     pool.update(used if isinstance(used, ClassPool) else set(used))
@@ -699,7 +736,7 @@ def resolve_stylesheet(
     items: list = []
     kept = dropped = 0
     for text, origin in sources:
-        ctx = _Ctx(pool, make_url_rewriter(origin, css_out), imports, namespaces)
+        ctx = _Ctx(pool, make_url_rewriter(origin, css_out), imports, namespaces, keep_element_selectors)
         nodes = tinycss2.parse_stylesheet(text, skip_comments=False, skip_whitespace=True)
         items.extend(_prune(nodes, ctx, False, layer))
         kept += ctx.kept
@@ -716,19 +753,38 @@ def resolve_stylesheet(
     body: list = items
     if layer and _has_content(items):
         body = [AtRule("layer", LAYER_NAME, items)]
-    elif layer:
-        body = items  # only comments (or nothing): no point wrapping
 
-    sep = "" if minify else "\n"
-    chunks = []
-    if head:
-        chunks.append(render_tree(head, minify))
-    if body:
-        chunks.append(render_tree(body, minify))
-    inline_css = render_stylesheet(list(inline_rules), minify, boost=boost).strip()
+    # With layering on, extracted !important declarations go to a layer that
+    # is ordered BEFORE the framework layer: for important declarations the
+    # earlier layer wins, which is how an inline !important beat framework
+    # !important. Normal declarations stay unlayered after the framework.
+    normal_rules = list(inline_rules)
+    important_items: list = []
+    if layer:
+        normal_rules = []
+        for r in inline_rules:
+            imp = [(p, v) for p, v in r.decls.items() if _IMPORTANT.search(v)]
+            norm = OrderedDict((p, v) for p, v in r.decls.items() if not _IMPORTANT.search(v))
+            if norm:
+                normal_rules.append(Rule(r.class_name, norm, r.key))
+            if imp:
+                selector = "." + r.class_name + (BOOST_SUFFIX if boost else "")
+                important_items.append(StyleRule(
+                    [selector], [Decl(p, _IMPORTANT.sub("", v).rstrip(), True) for p, v in imp]))
+    if important_items:
+        head = [AtRule("layer", f"{IMPORTANT_LAYER},{LAYER_NAME}", None)] + head
+
+    pieces = []
+    framework = head + body
+    if framework:
+        pieces.append(render_tree(framework, minify))
+    inline_css = render_stylesheet(normal_rules, minify, boost=boost).strip()
     if inline_css:
-        chunks.append(inline_css)
-    out = sep.join(chunks)
+        pieces.append(inline_css)
+    if important_items:
+        pieces.append(render_tree([AtRule("layer", IMPORTANT_LAYER, important_items)], minify))
+    pieces = [p.rstrip() for p in pieces if p.strip()]
+    out = "".join(pieces) if minify else "\n\n".join(pieces)
     if out and not minify:
         out += "\n"
     return ResolveResult(out, kept, dropped, pruned)

@@ -12,8 +12,6 @@ import sys
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
-from bs4 import BeautifulSoup
-
 from .core import (
     BOOST_SUFFIX,
     Registry,
@@ -21,6 +19,8 @@ from .core import (
     canonical,
     convert,
     make_class_name,
+    make_soup,
+    serialize_soup,
     parse_declarations,
     parse_existing_css,
     render_rule,
@@ -28,6 +28,7 @@ from .core import (
 )
 from .resolve import (
     BOOTSTRAP_SAFELIST,
+    IMPORTANT_LAYER,
     LAYER_NAME,
     ClassPool,
     ResolveResult,
@@ -46,6 +47,7 @@ __version__ = "1.1.0"
 __all__ = [
     "BOOTSTRAP_SAFELIST",
     "BOOST_SUFFIX",
+    "IMPORTANT_LAYER",
     "LAYER_NAME",
     "ClassPool",
     "Registry",
@@ -72,8 +74,8 @@ __all__ = [
 ]
 
 AUTO_SAFELIST_NOTE = (
-    "note: Bootstrap JavaScript detected, applying the bootstrap safelist preset "
-    "(use --no-auto-safelist to disable)"
+    "note: Bootstrap JavaScript detected, keeping its runtime classes "
+    "(--safelist-preset bootstrap). Use --no-auto-safelist to disable."
 )
 
 
@@ -280,30 +282,20 @@ class _SourceSet:
 
 def _rewrite_links(soup, new_href: str, remove) -> None:
     """Remove folded-in <link rel=stylesheet> tags (``remove(href)`` decides)
-    and put one link to the output stylesheet where the first one was, or at
-    the end of <head> when none was removed."""
-    anchor = None
-    existing = None
+    and append one link to the output stylesheet at the end of <head> unless
+    it is already linked. Last in <head> means the unlayered extracted rules
+    follow any other stylesheet the page keeps, as real inline styles did."""
     for tag in soup.find_all("link"):
         if not _is_stylesheet_link(tag):
             continue
         href = tag["href"]
         if href == new_href:
-            existing = tag
             continue
         if remove(href):
-            if anchor is None and existing is None:
-                anchor = tag
-            else:
-                tag.decompose()
-    if existing is not None:
-        if anchor is not None:
-            anchor.decompose()
+            tag.decompose()
+    if soup.find("link", href=new_href) is not None:
         return
     link = soup.new_tag("link", rel="stylesheet", href=new_href)
-    if anchor is not None:
-        anchor.replace_with(link)
-        return
     head = soup.find("head")
     if head is None:
         head = soup.new_tag("head")
@@ -361,7 +353,7 @@ def _resolve_pages(
         with open(path, encoding="utf-8") as fh:
             html = fh.read()
         new_html, _ = convert(html, prefix=prefix, naming=naming, inject_link=False, registry=registry)
-        soup = BeautifulSoup(new_html, "html.parser")
+        soup = make_soup(new_html)
         soups.append(soup)
         used |= collect_used_classes(soup)
 
@@ -405,7 +397,7 @@ def _resolve_pages(
         href = os.path.relpath(css_path, os.path.dirname(os.path.abspath(out))).replace(os.sep, "/")
         page_dir = os.path.dirname(os.path.abspath(path))
         _rewrite_links(soup, href, _remover(resolve_linked, list(resolve or ()), keys, page_dir))
-        html_out.append(str(soup))
+        html_out.append(serialize_soup(soup))
 
     if not dry_run:
         _write(css_path, result.css)

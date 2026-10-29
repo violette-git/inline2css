@@ -9,6 +9,50 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from bs4 import BeautifulSoup
+from bs4.builder import HTMLParserTreeBuilder
+from bs4.dammit import EntitySubstitution
+from bs4.element import Doctype
+from bs4.formatter import HTMLFormatter
+
+
+class _EveryTag(frozenset):
+    def __contains__(self, item) -> bool:  # every tag preserves whitespace
+        return True
+
+
+def make_soup(html: str) -> BeautifulSoup:
+    """Parse HTML without collapsing whitespace-only text nodes. BeautifulSoup
+    normally shrinks them to one space or newline outside <pre>/<textarea>,
+    which changes rendering under CSS white-space: pre / pre-wrap."""
+    builder = HTMLParserTreeBuilder(preserve_whitespace_tags=_EveryTag())
+    return BeautifulSoup(html, builder=builder)
+
+
+def _substitute(text: str) -> str:
+    # Minimal escaping (&, <, >) plus &nbsp;, which is invisible when raw.
+    return EntitySubstitution.substitute_xml(text).replace("\xa0", "&nbsp;")
+
+
+class _SourceOrderFormatter(HTMLFormatter):
+    def attributes(self, tag):  # keep the author's attribute order
+        return list(tag.attrs.items()) if tag.attrs else []
+
+
+_FORMATTER = _SourceOrderFormatter(entity_substitution=_substitute, void_element_close_prefix="")
+
+
+def serialize_soup(soup) -> str:
+    """Serialize parsed HTML: attributes in source order, HTML5 void tags
+    (``<br>``, not ``<br/>``) and non-breaking spaces kept as &nbsp;. The
+    whitespace-preserving parser already keeps the source's own newline after
+    the doctype, so BeautifulSoup's extra one is removed."""
+    out = soup.decode(formatter=_FORMATTER)
+    first = soup.contents[0] if soup.contents else None
+    if isinstance(first, Doctype):
+        head = f"<!DOCTYPE {first}>"
+        if out.startswith(head + "\n"):
+            out = head + out[len(head) + 1:]
+    return out
 
 
 @dataclass
@@ -129,7 +173,7 @@ def convert(
     if registry is None:
         registry = Registry()
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = make_soup(html)
     touched = False
 
     for el in soup.find_all(style=True):
@@ -163,7 +207,7 @@ def convert(
         if not head.find("link", href=css_href):
             head.append(soup.new_tag("link", rel="stylesheet", href=css_href))
 
-    return str(soup), list(registry.by_key.values())
+    return serialize_soup(soup), list(registry.by_key.values())
 
 
 def parse_existing_css(css: str) -> Registry:
