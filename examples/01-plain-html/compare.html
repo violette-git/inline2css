@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain HTML example</title>
+<meta name="description" content="The original page and every inline2css output rendered side by side, with the numbers and commands behind them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --paper:#E9EDF1; --sheet:#F7F9FB; --ink:#18202C; --ink-2:#4A5566; --rule:#C3CBD6;
+  --mark:#C8006A; --ok:#0F7A5F; --frame-bg:#FFFFFF;
+  --sans:"Schibsted Grotesk","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+  --mono:"Fragment Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --gutter:clamp(16px,4vw,56px); --o:14px; --m:10px;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#12161D; --sheet:#1A2029; --ink:#E4E8EE; --ink-2:#9AA5B5; --rule:#2E3744;
+    --mark:#FF5AA8; --ok:#47CFA4; --frame-bg:#0E1117;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12161D; --sheet:#1A2029; --ink:#E4E8EE; --ink-2:#9AA5B5; --rule:#2E3744;
+  --mark:#FF5AA8; --ok:#47CFA4; --frame-bg:#0E1117;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 17px/1.55 var(--sans);overflow-x:clip}
+a{color:var(--mark);text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--mark);outline-offset:3px;border-radius:2px}
+code,pre,.file{font-family:var(--mono);font-size:.82em}
+.wrap{max-width:1240px;margin:0 auto;padding:0 var(--gutter)}
+
+/* top bar */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px;padding:20px 0;border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;color:var(--ink);text-decoration:none;margin-right:auto}
+.brand svg{width:26px;height:26px;color:var(--mark)}
+.bar nav ol{display:flex;flex-wrap:wrap;gap:4px 22px;margin:0;padding:0;list-style:none}
+.bar nav a{color:var(--ink-2);text-decoration:none;font-size:15px;padding:4px 0;border-bottom:2px solid transparent}
+.bar nav a span{font-family:var(--mono);font-size:13px;margin-right:6px}
+.bar nav a:hover{color:var(--ink)}
+.bar nav a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--mark)}
+
+/* intro */
+.intro{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px 64px;padding:56px 0 40px;align-items:end}
+h1{font-size:clamp(2.1rem,4.6vw,3.55rem);line-height:1.04;letter-spacing:-.025em;font-weight:700;margin:0;max-width:16ch;text-wrap:balance}
+.lede p{margin:0 0 .8em;max-width:62ch;color:var(--ink-2)}
+.lede p:first-child{color:var(--ink)}
+.lede p:last-child{margin-bottom:0}
+
+h2{font-size:1.5rem;letter-spacing:-.01em;line-height:1.2;margin:0 0 6px;font-weight:650}
+.section{padding:48px 0;border-top:1px solid var(--rule)}
+.section-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:12px 32px;margin-bottom:36px}
+.section-head p{margin:0;color:var(--ink-2);max-width:60ch}
+
+/* proof sheet */
+.toggle{display:inline-flex;border:1px solid var(--rule);border-radius:999px;padding:3px;background:var(--sheet)}
+.toggle button{font:inherit;font-size:14px;border:0;background:none;color:var(--ink-2);padding:6px 14px;border-radius:999px;cursor:pointer}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.proofs{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px 64px;align-items:start}
+.ref{position:sticky;top:24px}
+.outputs{display:grid;gap:56px}
+figure{margin:0}
+.proof{position:relative}
+.proof::before{content:"";position:absolute;inset:calc(-1 * var(--o));pointer-events:none;
+  background:
+    linear-gradient(var(--mark),var(--mark)) 0 var(--o)/var(--m) 1px no-repeat,
+    linear-gradient(var(--mark),var(--mark)) var(--o) 0/1px var(--m) no-repeat,
+    linear-gradient(var(--mark),var(--mark)) 100% var(--o)/var(--m) 1px no-repeat,
+    linear-gradient(var(--mark),var(--mark)) calc(100% - var(--o)) 0/1px var(--m) no-repeat,
+    linear-gradient(var(--mark),var(--mark)) 0 calc(100% - var(--o))/var(--m) 1px no-repeat,
+    linear-gradient(var(--mark),var(--mark)) var(--o) 100%/1px var(--m) no-repeat,
+    linear-gradient(var(--mark),var(--mark)) 100% calc(100% - var(--o))/var(--m) 1px no-repeat,
+    linear-gradient(var(--mark),var(--mark)) calc(100% - var(--o)) 100%/1px var(--m) no-repeat;}
+.frame{position:relative;overflow:hidden;background:var(--frame-bg);outline:1px solid var(--rule);height:520px}
+.frame iframe{position:absolute;top:0;left:0;border:0;width:100%;height:100%;transform-origin:0 0;background:#fff}
+.phone .frame{background:var(--sheet)}
+figcaption{display:grid;grid-template-columns:1fr auto;gap:2px 16px;margin-top:22px;font-size:15px}
+figcaption strong{font-weight:600}
+figcaption .file{color:var(--ink-2)}
+figcaption .desc{grid-column:1/-1;color:var(--ink-2);margin-top:4px;max-width:58ch}
+figcaption .open{font-size:14px;align-self:start;white-space:nowrap}
+.match{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--ok);font-size:14px}
+.match svg{flex:none;width:16px;height:16px}
+.ref figcaption .desc{color:var(--ink-2)}
+
+/* numbers */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:14px 16px 14px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+thead th{font-weight:600;font-size:14px;color:var(--ink-2);border-bottom-color:var(--ink)}
+td.num,th.num{text-align:right;padding-left:16px}
+tbody th{font-weight:600}
+tbody th .file{display:block;font-weight:400;color:var(--ink-2);margin-top:2px}
+td .sub{display:block;color:var(--ink-2);font-size:13px;margin-top:2px}
+td .file{color:var(--ink-2)}
+.less{color:var(--ok)}
+.more{color:var(--ink-2)}
+tr.base th,tr.base td{background:var(--sheet)}
+tr.base th{padding-left:12px}
+
+/* source */
+.source{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.pane{min-width:0}
+.pane h3{font-size:15px;font-weight:600;margin:0 0 8px;display:flex;justify-content:space-between;gap:12px}
+.pane h3 .file{font-weight:400;color:var(--ink-2)}
+pre{margin:0;padding:16px 18px;background:var(--sheet);border:1px solid var(--rule);border-radius:4px;overflow-x:auto;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.pane.after pre{border-left:3px solid var(--mark)}
+.note{margin:24px 0 0;max-width:72ch;color:var(--ink-2)}
+.names{margin-top:16px;border-collapse:collapse;width:auto}
+.names td{padding:8px 24px 8px 0}
+
+/* commands */
+.cmds{display:grid;grid-template-columns:minmax(0,1fr);gap:22px;margin:0;padding:0;list-style:none}
+.cmds > li{min-width:0}
+.cmd-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px}
+.cmd-head strong{font-weight:600;font-size:15px}
+.copy{font:inherit;font-size:13px;color:var(--mark);background:none;border:1px solid var(--rule);border-radius:999px;padding:3px 12px;cursor:pointer}
+.copy:hover{border-color:var(--mark)}
+.cmds pre{white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere}
+.cmds .prompt{color:var(--ink-2);user-select:none}
+
+footer{padding:32px 0 56px;border-top:1px solid var(--rule);color:var(--ink-2);font-size:14px}
+footer p{margin:0;max-width:80ch}
+
+@media (max-width:900px){
+  .intro{grid-template-columns:1fr;padding-top:40px}
+  .proofs{grid-template-columns:minmax(0,1fr)}
+  .ref{position:static}
+  .source{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:640px){
+  :root{--o:10px;--m:7px}
+  body{font-size:16px}
+  .bar nav ol{gap:4px 16px}
+  table.numbers thead{display:none}
+  table.numbers,table.numbers tbody,table.numbers tr,table.numbers th,table.numbers td{display:block;width:100%}
+  table.numbers tr{padding:12px 0;border-bottom:1px solid var(--rule)}
+  table.numbers tr.base{padding:12px}
+  table.numbers th,table.numbers td{border:0;padding:3px 0;text-align:left}
+  table.numbers td{display:flex;justify-content:space-between;gap:16px}
+  table.numbers td::before{content:attr(data-label);color:var(--ink-2);font-size:14px;flex:none}
+  table.numbers td > span.v{text-align:right}
+  tr.base th{padding-left:0}
+}
+@media (prefers-reduced-motion:no-preference){
+  .frame iframe{transition:transform .25s ease}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="bar">
+  <a class="brand" href="compare.html"><svg viewBox="0 0 26 26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="13" cy="13" r="7"/><circle cx="13" cy="13" r="3"/><path d="M13 1v24M1 13h24"/></svg>inline2css examples</a>
+  <nav aria-label="Examples"><ol><li><a href="../01-plain-html/compare.html" aria-current="page"><span>01</span>Plain HTML</a></li><li><a href="../02-bootstrap/compare.html"><span>02</span>Bootstrap 5</a></li><li><a href="../03-tailwind/compare.html"><span>03</span>Tailwind 4</a></li></ol></nav>
+</header>
+
+<main>
+<section class="intro">
+  <h1>A plain HTML dashboard, moved out of its style attributes</h1>
+  <div class="lede"><p>This page has 11 inline styles and a small hand-written stylesheet with hover states, a media query and an animation. inline2css turns the 11 style attributes into 8 classes, because three paragraphs share one set of styles and two share another, so each set is written once.</p><p>The three naming modes give the same result with different class names. The resolved output goes one step further: it folds framework.css into the new file, keeps the hover, media query and animation rules, and leaves out the 4 rules nothing on the page uses.</p></div>
+</section>
+
+<section class="section" aria-labelledby="proof-h">
+  <div class="section-head">
+    <div><h2 id="proof-h">Rendered side by side</h2>
+    <p>Each frame loads the real file from this folder with its real stylesheet. The original stays on the left so you can compare it against each output.</p></div>
+    <div class="toggle" role="group" aria-label="Page width inside the frames">
+      <button type="button" data-mode="desktop" aria-pressed="true">Desktop, 1024 px</button>
+      <button type="button" data-mode="phone" aria-pressed="false">Phone, 390 px</button>
+    </div>
+  </div>
+  <div class="proofs">
+    <figure class="ref"><div class="proof"><div class="frame"><iframe src="original.html" title="original.html rendered" scrolling="no" tabindex="-1"></iframe></div></div><figcaption><strong>Original</strong><a class="open" href="original.html">Open on its own</a><span class="file">original.html + framework.css</span><span class="desc">The reference page, untouched. It stays in view while you scroll past the outputs.</span></figcaption></figure>
+    <div class="outputs"><figure><div class="proof"><div class="frame"><iframe src="output-basic.html" title="output-basic.html rendered" scrolling="no" tabindex="-1"></iframe></div></div><figcaption><strong>Default naming</strong><a class="open" href="output-basic.html">Open on its own</a><span class="file">output-basic.html + output-basic.css</span><span class="desc">Classes are numbered .i2c-1, .i2c-2 and so on. framework.css stays linked.</span><span class="match"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2l2.2 2.2 4.2-4.6"/></svg>Matches the original: every computed style is the same, and the pixels match at 1280 and 390 px.</span></figcaption></figure><figure><div class="proof"><div class="frame"><iframe src="output-semantic.html" title="output-semantic.html rendered" scrolling="no" tabindex="-1"></iframe></div></div><figcaption><strong>Semantic names, minified</strong><a class="open" href="output-semantic.html">Open on its own</a><span class="file">output-semantic.html + output-semantic.css</span><span class="desc">Class names describe the first declaration, and the CSS is written on one line.</span><span class="match"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2l2.2 2.2 4.2-4.6"/></svg>Matches the original: every computed style is the same, and the pixels match at 1280 and 390 px.</span></figcaption></figure><figure><div class="proof"><div class="frame"><iframe src="output-hash.html" title="output-hash.html rendered" scrolling="no" tabindex="-1"></iframe></div></div><figcaption><strong>Hashed names</strong><a class="open" href="output-hash.html">Open on its own</a><span class="file">output-hash.html + output-hash.css</span><span class="desc">Class names come from a hash of the declarations, so they stay stable across runs.</span><span class="match"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2l2.2 2.2 4.2-4.6"/></svg>Matches the original: every computed style is the same, and the pixels match at 1280 and 390 px.</span></figcaption></figure><figure><div class="proof"><div class="frame"><iframe src="output-resolved.html" title="output-resolved.html rendered" scrolling="no" tabindex="-1"></iframe></div></div><figcaption><strong>Resolved</strong><a class="open" href="output-resolved.html">Open on its own</a><span class="file">output-resolved.html + output-resolved.css</span><span class="desc">framework.css is folded into one stylesheet, unused rules are dropped, and the old link is removed.</span><span class="match"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2l2.2 2.2 4.2-4.6"/></svg>Matches the original: every computed style is the same, and the pixels match at 1280 and 390 px.</span></figcaption></figure></div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="num-h">
+  <div class="section-head"><div><h2 id="num-h">What each page loads</h2>
+  <p>File sizes are the stylesheets each page links to, in bytes, before compression. Rule counts come from the CLI output.</p></div></div>
+  <div class="table-wrap"><table class="numbers">
+    <thead><tr><th scope="col">Page</th><th scope="col" class="num">Inline styles</th><th scope="col">Stylesheets loaded</th><th scope="col" class="num">CSS bytes loaded</th><th scope="col">Framework rules</th></tr></thead>
+    <tbody><tr class="base"><th scope="row">Original<span class="file">original.html</span></th><td class="num" data-label="Inline styles"><span class="v">11</span></td><td data-label="Stylesheets loaded"><span class="v"><span class="file">framework.css</span> 1,681 B</span></td><td class="num" data-label="CSS bytes loaded"><span class="v">1,681 B</span></td><td data-label="Framework rules"><span class="v">All of framework.css, linked as is</span></td></tr><tr class=""><th scope="row">Default naming<span class="file">output-basic.html</span></th><td class="num" data-label="Inline styles"><span class="v">0</span></td><td data-label="Stylesheets loaded"><span class="v"><span class="file">framework.css</span> 1,681 B<br><span class="file">output-basic.css</span> 544 B</span></td><td class="num" data-label="CSS bytes loaded"><span class="v">2,225 B<span class="sub more">32% more</span></span></td><td data-label="Framework rules"><span class="v">Not touched, framework.css stays linked<span class="sub">8 extracted rules added</span></span></td></tr><tr class=""><th scope="row">Semantic names, minified<span class="file">output-semantic.html</span></th><td class="num" data-label="Inline styles"><span class="v">0</span></td><td data-label="Stylesheets loaded"><span class="v"><span class="file">framework.css</span> 1,681 B<br><span class="file">output-semantic.css</span> 549 B</span></td><td class="num" data-label="CSS bytes loaded"><span class="v">2,230 B<span class="sub more">33% more</span></span></td><td data-label="Framework rules"><span class="v">Not touched, framework.css stays linked<span class="sub">8 extracted rules added</span></span></td></tr><tr class=""><th scope="row">Hashed names<span class="file">output-hash.html</span></th><td class="num" data-label="Inline styles"><span class="v">0</span></td><td data-label="Stylesheets loaded"><span class="v"><span class="file">framework.css</span> 1,681 B<br><span class="file">output-hash.css</span> 584 B</span></td><td class="num" data-label="CSS bytes loaded"><span class="v">2,265 B<span class="sub more">35% more</span></span></td><td data-label="Framework rules"><span class="v">Not touched, framework.css stays linked<span class="sub">8 extracted rules added</span></span></td></tr><tr class=""><th scope="row">Resolved<span class="file">output-resolved.html</span></th><td class="num" data-label="Inline styles"><span class="v">0</span></td><td data-label="Stylesheets loaded"><span class="v"><span class="file">output-resolved.css</span> 2,003 B</span></td><td class="num" data-label="CSS bytes loaded"><span class="v">2,003 B<span class="sub more">19% more</span></span></td><td data-label="Framework rules"><span class="v">18 kept, 4 dropped<span class="sub">8 extracted rules added</span></span></td></tr></tbody>
+  </table></div>
+</section>
+
+<section class="section" aria-labelledby="src-h">
+  <div class="section-head"><div><h2 id="src-h">One element, before and after</h2>
+  <p>The style attribute is replaced by a class, and the class gets its own rule in the new stylesheet.</p></div></div>
+  <div class="source"><div class="pane"><h3>Before <span class="file">original.html</span></h3><pre><code>&lt;p class=&quot;card-body&quot; style=&quot;color:#4b5563; line-height:1.5;&quot;&gt;Up and to the right, mostly.&lt;/p&gt;</code></pre></div><div class="pane after"><h3>After <span class="file">output-basic.html</span></h3><pre><code>&lt;p class=&quot;card-body i2c-3&quot;&gt;Up and to the right, mostly.&lt;/p&gt;</code></pre></div><div class="pane after"><h3>New rule <span class="file">output-basic.css</span></h3><pre><code>.i2c-3:not(#\#) {
+    color: #4b5563;
+    line-height: 1.5;
+}</code></pre></div></div><p class="note">The same two declarations appear on three paragraphs, so they become a single class used three times. Here is that class under each naming mode:</p><table class="names"><tr><td class="file">output-basic.css</td><td><code>.i2c-3</code></td></tr><tr><td class="file">output-semantic.css</td><td><code>.i2c-color-4b5563-fa62</code></td></tr><tr><td class="file">output-hash.css</td><td><code>.i2c-fa62b4</code></td></tr></table>
+</section>
+
+<section class="section" aria-labelledby="cmd-h">
+  <div class="section-head"><div><h2 id="cmd-h">Commands</h2>
+  <p>Run these from the repository root, after <code>cd node &amp;&amp; npm install</code>, to regenerate each output.</p></div></div>
+  <ol class="cmds"><li><div class="cmd-head"><strong>Default naming <span class="file">output-basic</span></strong><button class="copy" type="button" data-for="cmd-0">Copy</button></div><pre id="cmd-0" data-cmd="node node/bin/cli.js examples/01-plain-html/original.html --css examples/01-plain-html/output-basic.css --html-out examples/01-plain-html/output-basic.html"><code><span class="prompt">$ </span>node node/bin/cli.js examples/01-plain-html/original.html --css examples/01-plain-html/output-basic.css --html-out examples/01-plain-html/output-basic.html</code></pre></li><li><div class="cmd-head"><strong>Semantic names, minified <span class="file">output-semantic</span></strong><button class="copy" type="button" data-for="cmd-1">Copy</button></div><pre id="cmd-1" data-cmd="node node/bin/cli.js examples/01-plain-html/original.html --naming semantic --minify --css examples/01-plain-html/output-semantic.css --html-out examples/01-plain-html/output-semantic.html"><code><span class="prompt">$ </span>node node/bin/cli.js examples/01-plain-html/original.html --naming semantic --minify --css examples/01-plain-html/output-semantic.css --html-out examples/01-plain-html/output-semantic.html</code></pre></li><li><div class="cmd-head"><strong>Hashed names <span class="file">output-hash</span></strong><button class="copy" type="button" data-for="cmd-2">Copy</button></div><pre id="cmd-2" data-cmd="node node/bin/cli.js examples/01-plain-html/original.html --naming hash --css examples/01-plain-html/output-hash.css --html-out examples/01-plain-html/output-hash.html"><code><span class="prompt">$ </span>node node/bin/cli.js examples/01-plain-html/original.html --naming hash --css examples/01-plain-html/output-hash.css --html-out examples/01-plain-html/output-hash.html</code></pre></li><li><div class="cmd-head"><strong>Resolved <span class="file">output-resolved</span></strong><button class="copy" type="button" data-for="cmd-3">Copy</button></div><pre id="cmd-3" data-cmd="node node/bin/cli.js examples/01-plain-html/original.html --resolve-linked --css examples/01-plain-html/output-resolved.css --html-out examples/01-plain-html/output-resolved.html"><code><span class="prompt">$ </span>node node/bin/cli.js examples/01-plain-html/original.html --resolve-linked --css examples/01-plain-html/output-resolved.css --html-out examples/01-plain-html/output-resolved.html</code></pre></li></ol>
+</section>
+</main>
+
+<footer><p>Generated with inline2css 1.1.1. Every output was checked against the original in headless Chromium: computed styles compared element by element, and full-page screenshots compared pixel by pixel at 1280 and 390 px.</p></footer>
+</div>
+<script>
+(function(){
+  var W = {desktop:1024, phone:390};
+  var H = {desktop:532, phone:764};
+  var mode = 'desktop';
+  var root = document.querySelector('.proofs');
+  function layout(){
+    var frames = document.querySelectorAll('.frame');
+    for (var i = 0; i < frames.length; i++){
+      var f = frames[i], ifr = f.querySelector('iframe');
+      var w = W[mode], h = H[mode], s = Math.min(1, f.clientWidth / w);
+      ifr.style.width = w + 'px'; ifr.style.height = h + 'px';
+      ifr.style.transform = 'scale(' + s + ')';
+      ifr.style.left = Math.max(0, (f.clientWidth - w * s) / 2) + 'px';
+      f.style.height = Math.ceil(h * s) + 'px';
+    }
+  }
+  var buttons = document.querySelectorAll('.toggle button');
+  for (var b = 0; b < buttons.length; b++){
+    buttons[b].addEventListener('click', function(e){
+      mode = e.currentTarget.getAttribute('data-mode');
+      for (var j = 0; j < buttons.length; j++) buttons[j].setAttribute('aria-pressed', String(buttons[j] === e.currentTarget));
+      root.classList.toggle('phone', mode === 'phone');
+      layout();
+    });
+  }
+  if ('ResizeObserver' in window) new ResizeObserver(layout).observe(root); else window.addEventListener('resize', layout);
+  layout();
+
+  var copies = document.querySelectorAll('.copy');
+  for (var c = 0; c < copies.length; c++){
+    copies[c].addEventListener('click', function(e){
+      var btn = e.currentTarget, text = document.getElementById(btn.getAttribute('data-for')).getAttribute('data-cmd');
+      function done(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1600); }
+      try {
+        navigator.clipboard.writeText(text).then(done, function(){ btn.textContent = 'Select and copy'; });
+      } catch (err) { btn.textContent = 'Select and copy'; }
+    });
+  }
+})();
+</script>
+</body>
+</html>

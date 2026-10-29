@@ -1,0 +1,40 @@
+.i2c-0263ed:not(#\#) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.i2c-52b83d:not(#\#) {
+    font-size: 28px;
+    margin: 0;
+    color: #111827;
+}
+
+.i2c-fa62b4:not(#\#) {
+    color: #4b5563;
+    line-height: 1.5;
+}
+
+.i2c-a25604:not(#\#) {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.i2c-d60550:not(#\#) {
+    margin: 12px 0;
+}
+
+.i2c-1b0f49:not(#\#) {
+    margin-top: 16px;
+}
+
+.i2c-539fa9:not(#\#) {
+    margin-right: 8px;
+}
+
+.i2c-1d0566:not(#\#) {
+    text-align: center;
+    margin-top: 24px;
+}

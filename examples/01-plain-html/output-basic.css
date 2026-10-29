@@ -1,0 +1,40 @@
+.i2c-1:not(#\#) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.i2c-2:not(#\#) {
+    font-size: 28px;
+    margin: 0;
+    color: #111827;
+}
+
+.i2c-3:not(#\#) {
+    color: #4b5563;
+    line-height: 1.5;
+}
+
+.i2c-4:not(#\#) {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.i2c-5:not(#\#) {
+    margin: 12px 0;
+}
+
+.i2c-6:not(#\#) {
+    margin-top: 16px;
+}
+
+.i2c-7:not(#\#) {
+    margin-right: 8px;
+}
+
+.i2c-8:not(#\#) {
+    text-align: center;
+    margin-top: 24px;
+}
