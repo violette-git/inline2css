@@ -1,0 +1,41 @@
+{
+  "name": "inline2css",
+  "version": "1.0.0",
+  "description": "Extract inline HTML style attributes into an external stylesheet and strip them from the markup. CLI + library.",
+  "keywords": [
+    "css",
+    "inline-styles",
+    "html",
+    "refactor",
+    "stylesheet",
+    "extract",
+    "cheerio"
+  ],
+  "license": "MIT",
+  "author": "Gaytan G. Glover Jr.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/violette-git/inline2css.git"
+  },
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "inline2css": "bin/cli.js"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "css-tree": "^3.2.1"
+  }
+}
