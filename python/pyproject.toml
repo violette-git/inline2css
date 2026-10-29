@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "inline2css"
+version = "1.1.1"
+description = "Extract inline HTML style attributes into an external stylesheet and strip them from the markup."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Gaytan G. Glover Jr." }]
+keywords = ["css", "inline-styles", "html", "refactor", "stylesheet", "extract", "bootstrap", "tailwind", "tree-shaking"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+dependencies = ["beautifulsoup4>=4.9", "tinycss2>=1.2"]
+
+[project.urls]
+Homepage = "https://github.com/violette-git/inline2css"
+Repository = "https://github.com/violette-git/inline2css"
+
+[project.scripts]
+inline2css = "inline2css.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inline2css"]
