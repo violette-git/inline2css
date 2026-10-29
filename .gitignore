@@ -1,4 +1,10 @@
-env
-.env
-/env
 env/
+.env
+node_modules/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.tgz
