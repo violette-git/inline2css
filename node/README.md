@@ -38,13 +38,13 @@ Your page still looks exactly the same in the browser. It's just tidier undernea
 **And you get a new `styles.css`:**
 
 ```css
-.i2c-1 {
+.i2c-1:not(#\#) {
     color: red;
     font-size: 18px;
 }
 ```
 
-Same look, much cleaner.
+Same look, much cleaner. The extra `:not(#\#)` is a harmless trick that makes the rule as strong as the inline style it replaced; use `--no-boost` for plain class names.
 
 ---
 
@@ -160,8 +160,8 @@ inline2css my-website-folder --resolve-linked
 What happens:
 
 - Only the framework rules your pages use are kept. A full Bootstrap file is about 280 KB; a typical page needs a small fraction of that.
-- The old framework `<link>` is removed and replaced with one link to your new stylesheet.
-- Your inline styles still win over the framework, just like they did when they were inline (see "Why your styles still win" below).
+- The old framework `<link>` is removed and replaced with one link to your new stylesheet, in the same spot, so any styles your page adds after the framework still come after it.
+- Your inline styles still win over the framework, just like they did when they were inline (see "Notes on the cascade" further down).
 - Animations and web fonts nobody uses are removed too.
 - Image and font paths inside the framework CSS are fixed up so they still work from the new file's location.
 
@@ -173,10 +173,10 @@ inline2css page.html --resolve-linked --safelist my-class --safelist /^carousel/
 
 A name wrapped in slashes, like `/^carousel/`, is a pattern: it keeps every class that starts with `carousel`.
 
-**Keeping the framework linked instead?** If you only want to move your inline styles out (basic mode) but still load Bootstrap or Tailwind normally, add `--boost` so your moved styles keep beating the framework:
+**Keeping the framework linked instead?** That works too. If you only move your inline styles out (basic mode) and still load Bootstrap or Tailwind normally, your moved styles keep beating the framework, because of the `:not(#\#)` trick shown above. Nothing extra to type:
 
 ```
-inline2css page.html --boost
+inline2css page.html
 ```
 
 **Tailwind users:** point `--resolve` at your *built* Tailwind CSS file (the one Tailwind generates), not the Tailwind CDN script.
@@ -186,7 +186,7 @@ inline2css page.html --boost
 ## Frequently asked questions
 
 **Will my website look different afterward?**
-No. The styling is identical, it just lives in a different place. If you also use Bootstrap or Tailwind, see "Using Bootstrap or Tailwind" above (resolve mode handles this for you, and `--boost` covers the case where you keep the framework linked). The "Notes on the cascade" section further down has the details.
+No. The styling is identical, it just lives in a different place. This also holds when you use Bootstrap or Tailwind, whether you keep the framework linked or fold it in with resolve mode. The "Notes on the cascade" section further down has the details.
 
 **Do I need to know how to code?**
 No. If you can type a file name into a terminal, you can use the basic features. The commands above are all you need.
@@ -232,8 +232,8 @@ Extract inline HTML `style` attributes into an external stylesheet, then strip t
 - **Dry run**: report what would change without writing files.
 - **In-place**: overwrite the source HTML.
 - **Robust parsing**: tolerates missing semicolons, extra whitespace, quoted values, and semicolons inside `url(...)`.
-- **Boost**: `--boost` raises extracted selectors by one id of specificity, for pages that keep a framework linked.
-- **Resolve mode**: tree-shake Bootstrap / Tailwind / any stylesheet down to the rules the HTML can use, for one file or a whole directory, with safelists, cascade layering, dead `@keyframes` / `@font-face` pruning and `url()` rewriting.
+- **Boost (default)**: extracted selectors are written as `.i2c-1:not(#\#)`, one id of specificity, so they beat class rules the way inline styles did. `--no-boost` writes plain `.i2c-1`.
+- **Resolve mode**: tree-shake Bootstrap / Tailwind / any stylesheet down to the rules the HTML can use, for one file or a whole directory, with safelists, optional cascade layering (`--layer`), dead `@keyframes` / `@font-face` pruning and `url()` rewriting.
 
 ## Install
 
@@ -263,7 +263,8 @@ Basic options:
   --merge                 Reuse classes from an existing stylesheet (basic mode only)
   --in-place              Overwrite the input HTML
   --dry-run               Report without writing
-  --boost                 Emit extracted selectors as .i2c-1:not(#\#)
+  --no-boost              Emit plain .i2c-1 selectors instead of the default
+                          .i2c-1:not(#\#)
 
 Resolve mode:
   --resolve <src>         Tree-shake a stylesheet (file or URL). Repeatable.
@@ -271,7 +272,8 @@ Resolve mode:
   --safelist <name>       Always keep this class; /regex/ for a pattern. Repeatable.
   --safelist-preset <p>   Keep a framework's runtime classes (bootstrap). Repeatable.
   --no-auto-safelist      Do not auto-apply the bootstrap preset
-  --no-layer              Do not wrap framework CSS in @layer inline2css-framework
+  --layer                 Opt-in: wrap framework CSS in @layer inline2css-framework
+                          (changes how !important rules interact with your CSS)
   --keep-all-at-rules     Keep unreferenced @keyframes and @font-face
 
 Other:
@@ -279,7 +281,7 @@ Other:
   -h, --help              Show help
 ```
 
-Unknown flags exit with code 2 and a message; a missing input exits with code 1. Value flags also accept `--flag=value`.
+`--boost` is still accepted as a no-op (boosting is the default); `--no-layer` was removed in 1.1.1 because no layer is the default. Unknown flags exit with code 2 and a message; a missing input exits with code 1. Value flags also accept `--flag=value`.
 
 Examples:
 
@@ -300,7 +302,7 @@ const { convert, convertFile, convertDirectory } = require('inline2css');
 
 const { html, rules } = convert('<p style="color:red">x</p>', { naming: 'hash' });
 convertFile('page.html', { minify: true });
-convertDirectory('site/', { naming: 'semantic', boost: true });
+convertDirectory('site/', { naming: 'semantic', boost: false }); // plain .class selectors
 ```
 
 `convert`, `convertFile` and `convertDirectory` are synchronous. The resolve functions (`resolveFile`, `resolveDirectory`) return Promises; see Resolve mode below.
@@ -317,12 +319,13 @@ convert_directory("site/", naming="semantic")
 
 ## Notes on the cascade
 
-An inline `style` attribute beats every normal (non-`!important`) rule in a stylesheet. A class does not: once moved into `.i2c-1` (specificity 0,1,0), the declaration loses to any competing rule with higher specificity, such as Bootstrap's `.navbar-nav .nav-link` (0,2,0). On a real Bootstrap page this shifted a nav link's padding. inline2css offers two fixes:
+An inline `style` attribute beats every normal (non-`!important`) rule in a stylesheet. A class does not: once moved into `.i2c-1` (specificity 0,1,0), the declaration loses to any competing rule with higher specificity, such as Bootstrap's `.navbar-nav .nav-link` (0,2,0). On a real Bootstrap page this shifted a nav link's padding.
 
-- **Resolve mode (automatic, default on).** The resolved framework CSS is wrapped in `@layer inline2css-framework { ... }` and the extracted rules are written after it, outside any layer. Per the CSS cascade, unlayered normal declarations beat layered normal declarations regardless of specificity, which is exactly how inline styles behaved. Framework `!important` declarations still beat your normal ones, also exactly as before. Extracted declarations that were themselves `!important` are put in a layer `inline2css-important` declared before the framework layer; for `!important` the earlier layer wins, so they still beat framework `!important`. Pass `--no-layer` to turn layering off. Cascade layers are supported by all current browsers (Chrome/Edge 99+, Firefox 97+, Safari 15.4+).
-- **Basic mode, framework still linked (`--boost`, opt-in).** Extracted selectors are written as `.i2c-1:not(#\#)`. `#\#` is an id no element has, so `:not(#\#)` always matches but adds one id of specificity (1,1,0), enough to beat typical framework class chains. It cannot beat framework `!important` or id-heavy selectors.
+- **Boost (default, both modes).** Extracted selectors are written as `.i2c-1:not(#\#)`. `#\#` is an id no element has, so `:not(#\#)` always matches but adds one id of specificity (1,1,0), enough to beat class-only framework and page rules the way the inline style did. Like an inline style, it still loses to any `!important` rule. Inline declarations that were themselves `!important` stay in the same boosted rule: an important (1,1,0) selector beats class-only `!important` rules, matching inline `!important`. It does not beat id selectors with more specificity, so review those cases. `--no-boost` writes plain `.i2c-1` selectors. The class names in the HTML are the same either way (`class="i2c-1"`); only the CSS selector changes.
+- **Link position (resolve mode).** The output `<link>` is placed where the first removed framework `<link>` was, so the page's own later `<style>` blocks and stylesheets still come after the framework rules, exactly as before. If the removed links were not next to each other (a `<style>` or another stylesheet sat between them), inline2css prints a `warn:` line, because the order between those sheets changed.
+- **`--layer` (opt-in).** Wraps the resolved framework CSS in `@layer inline2css-framework { ... }` and writes the extracted rules after it, unlayered. Unlayered normal declarations beat layered ones regardless of specificity. Extracted `!important` declarations go into an `inline2css-important` layer declared before the framework layer. **Caveat:** for `!important` declarations a layered rule beats every unlayered one, so a framework `!important` (for example Bootstrap's `.d-none { display: none !important }`) starts beating your page's own `!important` overrides. That broke the theme menu check mark on Bootstrap's official Pricing example, which is why layering is no longer the default. Cascade layers need Chrome/Edge 99+, Firefox 97+ or Safari 15.4+.
 
-Without either, review a visual diff on real pages.
+Review a visual diff on complex pages.
 
 ## Tests
 
@@ -366,15 +369,15 @@ Classes added at runtime by JavaScript never appear in the static HTML. Add them
 - `--safelist-preset bootstrap` adds the classes Bootstrap 5 JS toggles: `show`, `showing`, `hiding`, `collapse`, `collapsing`, `collapse-horizontal`, `fade`, `active`, `disabled`, `open`, `modal-open`, `modal-backdrop`, `modal-static`, `offcanvas-backdrop`, `is-valid`, `is-invalid`, `was-validated`, `tooltip`, `tooltip-inner`, `tooltip-arrow`, `popover`, `popover-arrow`, `popover-header`, `popover-body`, `carousel-item-next`, `carousel-item-prev`, `carousel-item-start`, `carousel-item-end`, `dropdown-menu-end`, `toast`, plus the patterns `/^bs-tooltip-/` and `/^bs-popover-/`.
 - **Auto-detect:** when a page has a `<script src>` matching `/bootstrap(\.bundle)?(\.min)?\.js/i` or any `data-bs-*` attribute, the bootstrap preset is applied automatically and one `note:` line is printed to stderr. `--no-auto-safelist` disables this. In directory mode, any one page triggering it applies the preset to the shared stylesheet.
 
-### Layering and output order
+### Output order and layering
 
 The combined stylesheet is written in this order:
 
-1. Hoisted `@import` rules, rewritten as `@import url(x) layer(inline2css-framework) <media>;` (an existing `layer(name)` becomes `layer(inline2css-framework.name)`), then hoisted `@namespace` rules. `@charset` is dropped (the output is UTF-8).
-2. The framework CSS inside `@layer inline2css-framework { ... }`.
-3. The extracted inline rules, unlayered (and, only when some inline declarations were `!important`, an `@layer inline2css-important { ... }` block declared ahead of the framework layer).
+1. Hoisted `@import` rules (unchanged), then hoisted `@namespace` rules. CSS requires both to come first. `@charset` is dropped (the output is UTF-8).
+2. The resolved framework rules, in their original source order, unlayered.
+3. The extracted inline rules (boosted by default).
 
-See "Notes on the cascade" above for why. `--no-layer` writes steps 1 and 2 without the layer wrapper (imports and namespaces are still hoisted, because CSS requires them first).
+With `--layer`, step 1 rewrites each import as `@import url(x) layer(inline2css-framework) <media>;` (an existing `layer(name)` becomes `layer(inline2css-framework.name)`), step 2 is wrapped in `@layer inline2css-framework { ... }`, and, only when some inline declarations were `!important`, an `@layer inline2css-important { ... }` block declared ahead of the framework layer is added after step 3. See "Notes on the cascade" above for the caveat.
 
 ### Dead at-rule pruning
 
@@ -388,7 +391,9 @@ After tree-shaking, `@keyframes NAME` is dropped unless `NAME` appears in an `an
 
 ### Link handling
 
-In resolve mode, each `<link rel=stylesheet>` that was folded in is removed: all of them with `--resolve-linked`, plus any whose href basename (query string stripped) equals the basename of an explicit `--resolve` source, so `--resolve vendor/bootstrap.min.css` also removes `<link href="https://cdn.../bootstrap.min.css?v=5">`. Then exactly one `<link>` to the output CSS is added to `<head>`.
+In resolve mode, each `<link rel=stylesheet>` that was folded in is removed: all of them with `--resolve-linked` (except a linked sheet that could not be loaded, which is kept and reported with a `warn:` line), plus any whose href basename (query string stripped) equals the basename of an explicit `--resolve` source, so `--resolve vendor/bootstrap.min.css` also removes `<link href="https://cdn.../bootstrap.min.css?v=5">`.
+
+Exactly one `<link>` to the output CSS is then inserted at the position of the first removed link (same parent, same place). If no link was removed (for example an explicit `--resolve` of a file the page never linked), it is appended to the end of `<head>`. If the removed links were not contiguous (another `<style>` or a kept stylesheet `<link>` sat between them), one `warn:` line says the cascade order between those sheets changed.
 
 ### Directory mode
 
@@ -412,14 +417,14 @@ await resolveDirectory('site/', {
   safelist: ['my-class', /^carousel/],
   safelistPreset: 'bootstrap',
   autoSafelist: true,   // default
-  layer: true,          // default; false = --no-layer
-  boost: false,         // default
+  layer: false,         // default; true = --layer (opt-in)
+  boost: true,          // default; false = --no-boost
   keepAllAtRules: false // default
 });
 
 // Pure, synchronous tree-shake of CSS text (no I/O):
 const { css, keptRules, droppedRules, droppedAtRules } =
-  resolveStylesheet(cssText, collectUsedClasses($), { safelist: [/^tooltip/], layer: true });
+  resolveStylesheet(cssText, collectUsedClasses($), { safelist: [/^tooltip/] });
 ```
 
 `resolveFile` resolves to `{ cssPath, htmlPath, inlineRules, resolvedKept, resolvedDropped, atRulesDropped, autoSafelist, wrote }`; `resolveDirectory` returns the same with `files: [{ htmlPath }]` instead of `htmlPath`. Notes (like the auto-detect line) go to stderr; pass `log: false` to silence them or `log: (msg) => ...` to capture them. `selectorIsUsed(selectorAst, pool)` takes a css-tree selector node and a `Set` (or any object with `has(name)`).
@@ -428,5 +433,5 @@ const { css, keptRules, droppedRules, droppedAtRules } =
 
 - **Tailwind needs your compiled CSS.** A Tailwind project's real CSS is generated from your config, so point `--resolve` at your built `output.css`, not the CDN script. Bootstrap from a CDN works directly.
 - **Classes built by your own JavaScript** need `--safelist`; inline2css only sees the static HTML.
-- `--merge` applies to basic mode only.
+- `--merge` applies to basic mode only. It reads both boosted (`.x:not(#\#)`) and plain (`.x`) selectors.
 - Review a visual diff on complex pages.

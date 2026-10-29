@@ -64,31 +64,74 @@ function stylesheetLinks($) {
   return out;
 }
 
+/** True for a <style> element or a <link rel=stylesheet>. */
+function isSheetNode($, el) {
+  if (!el || (el.type !== 'tag' && el.type !== 'style')) return false;
+  const name = String(el.name || '').toLowerCase();
+  if (name === 'style') return true;
+  if (name !== 'link' || !$(el).attr('href')) return false;
+  return String($(el).attr('rel') || '').toLowerCase().split(/\s+/).includes('stylesheet');
+}
+
 /**
  * Remove the <link rel=stylesheet> tags that were folded into the output,
- * then make sure one <link> to the new stylesheet exists.
+ * then make sure one <link> to the new stylesheet exists. The new <link> goes
+ * where the FIRST removed link was (same parent, same place) so the page's own
+ * later <style> blocks and sheets keep cascading after it. With nothing
+ * removed it is appended to the end of <head>.
  * @param {import('cheerio').CheerioAPI} $
  * @param {string} newHref
- * @param {{all?: boolean, basenames?: Set<string>}} which
+ * @param {{all?: boolean, basenames?: Set<string>, shouldRemove?: (href:string)=>boolean}} which
  *   all: remove every stylesheet link (--resolve-linked); basenames: remove
- *   links whose href basename is in the set (explicit --resolve sources).
+ *   links whose href basename is in the set (explicit --resolve sources);
+ *   shouldRemove: optional filter applied to `all` (for example, only links
+ *   that were actually loaded).
+ * @returns {{removed: number, contiguous: boolean}}
+ *   contiguous is false when another <style> or kept stylesheet <link> sat
+ *   between the removed links, so the cascade order between them changed.
  */
 function rewriteLinks($, newHref, which = {}) {
   const basenames = which.basenames || new Set();
+  const toRemove = [];
   for (const el of stylesheetLinks($)) {
     const href = $(el).attr('href');
     if (href === newHref) continue;
-    if (which.all || basenames.has(hrefBasename(href))) $(el).remove();
+    const viaAll = which.all && (!which.shouldRemove || which.shouldRemove(href));
+    if (viaAll || basenames.has(hrefBasename(href))) toRemove.push(el);
   }
-  let $head = $('head');
-  if ($head.length === 0) {
-    if ($('html').length) $('html').prepend('<head></head>');
-    else $.root().prepend('<head></head>');
-    $head = $('head');
+
+  // Contiguity: in document order, no other sheet node may sit between the
+  // first and the last removed link.
+  let contiguous = true;
+  if (toRemove.length > 1) {
+    const removing = new Set(toRemove);
+    const sheetNodes = $('style, link').toArray().filter((el) => isSheetNode($, el));
+    const idx = sheetNodes.map((el) => removing.has(el));
+    const first = idx.indexOf(true);
+    const last = idx.lastIndexOf(true);
+    for (let i = first; i <= last; i++) {
+      if (!idx[i]) {
+        contiguous = false;
+        break;
+      }
+    }
   }
-  if ($head.find(`link[href="${newHref}"]`).length === 0) {
-    $head.append(`<link rel="stylesheet" href="${newHref}">`);
+
+  const tag = `<link rel="stylesheet" href="${newHref}">`;
+  const exists = stylesheetLinks($).some((el) => $(el).attr('href') === newHref);
+  if (!exists && toRemove.length) $(toRemove[0]).before(tag);
+  for (const el of toRemove) $(el).remove();
+
+  if (!exists && !toRemove.length) {
+    let $head = $('head');
+    if ($head.length === 0) {
+      if ($('html').length) $('html').prepend('<head></head>');
+      else $.root().prepend('<head></head>');
+      $head = $('head');
+    }
+    $head.append(tag);
   }
+  return { removed: toRemove.length, contiguous };
 }
 
 /** Default output path for a cleaned HTML file. */
@@ -133,7 +176,7 @@ function parseExistingCss(css) {
   while ((m = ruleRe.exec(css)) !== null) {
     const selector = m[1].trim();
     const body = m[2].trim();
-    // Also accept a boosted selector (.name:not(#\#)) written by --boost.
+    // Accept both boosted (.name:not(#\#), the default) and plain selectors.
     const single = /^\.([A-Za-z_][-\w]*)(?::not\(#\\#\))?$/.exec(selector);
     if (!single) continue;
     const decls = parseDeclarations(body);
@@ -308,17 +351,22 @@ async function resolvePages(files, opts, cssPath, htmlOutFor) {
   // Sources: linked sheets (relative to each page) then explicit ones (cwd).
   const sources = [];
   const seen = new Set();
+  const loaded = new Set(); // keys of linked sheets that were actually folded in
+  const linkKey = (page, href) => {
+    const url = href.startsWith('//') ? `https:${href}` : href; // protocol-relative CDN links
+    return isHttp(url) ? url : path.resolve(path.dirname(page.file), url.split(/[?#]/)[0]);
+  };
   if (opts.resolveLinked) {
     for (const page of pages) {
       for (const el of stylesheetLinks(page.$)) {
         const href = page.$(el).attr('href');
         if (!href || href === page.cssHref) continue;
-        const url = href.startsWith('//') ? `https:${href}` : href; // protocol-relative CDN links
-        const key = isHttp(url) ? url : path.resolve(path.dirname(page.file), url.split(/[?#]/)[0]);
+        const key = linkKey(page, href);
         if (key === path.resolve(cssPath) || seen.has(key)) continue;
         seen.add(key);
         try {
           sources.push(await loadCss(key, process.cwd()));
+          loaded.add(key);
         } catch (e) {
           note(opts, `warn: could not load linked sheet ${href}: ${e.message}`);
         }
@@ -339,18 +387,28 @@ async function resolvePages(files, opts, cssPath, htmlOutFor) {
   const result = buildStylesheet(sources, pool, {
     to: cssPath,
     inlineRules,
-    boost: !!opts.boost,
-    layer: opts.layer === false ? false : opts.layer || true,
+    boost: opts.boost !== false,
+    layer: opts.layer || false,
     keepAllAtRules: !!opts.keepAllAtRules,
     minify: !!opts.minify,
   });
 
   const outFiles = [];
   for (const page of pages) {
-    rewriteLinks(page.$, page.cssHref, {
+    const { contiguous } = rewriteLinks(page.$, page.cssHref, {
       all: !!opts.resolveLinked,
       basenames: explicitBasenames,
+      // A linked sheet that failed to load was not folded in: keep its <link>.
+      shouldRemove: (href) => loaded.has(linkKey(page, href)),
     });
+    if (!contiguous) {
+      const where = pages.length > 1 ? ` in ${page.file}` : '';
+      note(
+        opts,
+        `warn: the removed framework <link>s${where} were not next to each other (a <style> or another ` +
+          'stylesheet sat between them); their cascade order relative to that CSS changed. Check the result.',
+      );
+    }
     const htmlPath = htmlOutFor(page.file);
     if (!opts.dryRun) fs.writeFileSync(htmlPath, page.$.html(), 'utf8');
     outFiles.push({ htmlPath });
@@ -385,8 +443,9 @@ async function resolvePages(files, opts, cssPath, htmlOutFor) {
  *   @param {Array<string|RegExp>} [opts.safelist]  extra classes / patterns to keep
  *   @param {string|string[]} [opts.safelistPreset] e.g. 'bootstrap'
  *   @param {boolean}  [opts.autoSafelist=true]  auto-apply presets when detected
- *   @param {boolean}  [opts.layer=true]     wrap framework CSS in @layer inline2css-framework
- *   @param {boolean}  [opts.boost=false]    extracted selectors get :not(#\#)
+ *   @param {boolean}  [opts.layer=false]    opt-in: wrap framework CSS in @layer inline2css-framework
+ *                                           (changes how framework !important rules interact with page CSS)
+ *   @param {boolean}  [opts.boost=true]     extracted selectors get :not(#\#); false for plain .class
  *   @param {boolean}  [opts.keepAllAtRules=false]  keep unreferenced @keyframes/@font-face
  *   @param {string}   [opts.css]            output css path
  *   @param {string}   [opts.htmlOut]
