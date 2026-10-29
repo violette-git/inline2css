@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Example 1: plain HTML (original)</title>
+  <link rel="stylesheet" href="framework.css">
+</head>
+<body>
+  <div class="container">
+    <header style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;">
+      <h1 style="font-size:28px; margin:0; color:#111827;">Dashboard</h1>
+      <span class="badge">beta</span>
+    </header>
+
+    <div class="grid md:flex md:gap">
+      <div class="card">
+        <p class="card-title">Revenue</p>
+        <p class="card-body" style="color:#4b5563; line-height:1.5;">Up and to the right, mostly.</p>
+        <p style="margin-top:12px; font-size:13px; color:#9ca3af;">Updated moments ago</p>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Signups</p>
+        <p class="card-body" style="color:#4b5563; line-height:1.5;">A steady trickle of new folks.</p>
+        <p style="margin-top:12px; font-size:13px; color:#9ca3af;">Updated moments ago</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Notes</p>
+      <blockquote class="pull-quote" style="margin:12px 0;">Ship it, then fix it.</blockquote>
+      <p style="color:#4b5563; line-height:1.5;">Some inline text with the same styling as the card bodies above, on purpose, so you can see deduplication.</p>
+      <div style="margin-top:16px;">
+        <button class="btn btn-primary" style="margin-right:8px;">Save</button>
+        <button class="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+
+    <p class="muted pulse" style="text-align:center; margin-top:24px;">Auto-refreshing&hellip;</p>
+  </div>
+</body>
+</html>
