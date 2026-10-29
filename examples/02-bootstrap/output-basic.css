@@ -1,0 +1,24 @@
+.i2c-1:not(#\#) {
+    padding: 0 40px;
+    color: crimson;
+}
+
+.i2c-2:not(#\#) {
+    letter-spacing: .5px;
+}
+
+.i2c-3:not(#\#) {
+    height: 8px;
+}
+
+.i2c-4:not(#\#) {
+    width: 62%;
+}
+
+.i2c-5:not(#\#) {
+    min-width: 120px;
+}
+
+.i2c-6:not(#\#) {
+    border-left: 6px solid #f59f00;
+}

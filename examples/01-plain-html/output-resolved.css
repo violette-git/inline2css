@@ -1,0 +1,136 @@
+body {
+    margin:0;
+    font-family:system-ui,sans-serif;
+    background:#f4f4f8;
+    color:#222
+}
+.container {
+    max-width:900px;
+    margin:0 auto;
+    padding:24px
+}
+.btn {
+    display:inline-block;
+    padding:10px 16px;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+    font-size:15px
+}
+.btn-primary {
+    background:#4f46e5;
+    color:#fff
+}
+.btn-primary:hover {
+    background:#4338ca
+}
+.btn-ghost {
+    background:transparent;
+    color:#4f46e5;
+    border:1px solid #4f46e5
+}
+.btn-ghost:hover {
+    background:#eef2ff
+}
+.card {
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:20px;
+    margin-bottom:16px
+}
+.card>.card-title {
+    font-size:20px;
+    font-weight:700;
+    margin:0 0 8px
+}
+.card>.card-body {
+    color:#4b5563;
+    line-height:1.5
+}
+.badge {
+    display:inline-block;
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:12px;
+    background:#ecfeff;
+    color:#0e7490
+}
+.grid {
+    display:grid;
+    gap:16px
+}
+.muted {
+    color:#9ca3af
+}
+.pull-quote {
+    border-left:4px solid #4f46e5;
+    padding-left:16px;
+    font-style:italic
+}
+@media (min-width:700px) {
+    .md\:flex {
+        display:flex
+    }
+    .md\:gap {
+        gap:24px
+    }
+    .grid {
+        grid-template-columns:1fr 1fr
+    }
+}
+@keyframes pulse {
+    0% {
+        opacity:1
+    }
+    50% {
+        opacity:.5
+    }
+    100% {
+        opacity:1
+    }
+}
+.pulse {
+    animation:pulse 2s infinite
+}
+
+.i2c-1:not(#\#) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.i2c-2:not(#\#) {
+    font-size: 28px;
+    margin: 0;
+    color: #111827;
+}
+
+.i2c-3:not(#\#) {
+    color: #4b5563;
+    line-height: 1.5;
+}
+
+.i2c-4:not(#\#) {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.i2c-5:not(#\#) {
+    margin: 12px 0;
+}
+
+.i2c-6:not(#\#) {
+    margin-top: 16px;
+}
+
+.i2c-7:not(#\#) {
+    margin-right: 8px;
+}
+
+.i2c-8:not(#\#) {
+    text-align: center;
+    margin-top: 24px;
+}

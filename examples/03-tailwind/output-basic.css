@@ -1,0 +1,11 @@
+.i2c-1:not(#\#) {
+    color: #312e81;
+}
+
+.i2c-2:not(#\#) {
+    font-style: italic;
+}
+
+.i2c-3:not(#\#) {
+    margin-top: 40px;
+}
