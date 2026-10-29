@@ -50,8 +50,7 @@ def _read(path):
 
 
 def _resolve(css, classes, **kw):
-    """Resolve without the layer wrapper so assertions stay simple."""
-    kw.setdefault("layer", False)
+    """Resolve with default options (no layer)."""
     return resolve_stylesheet(css, set(classes), **kw)
 
 
@@ -388,7 +387,7 @@ def _bootstrap_page(d, extra=""):
 def test_auto_safelist_applies_preset():
     d = _tmp()
     page = _bootstrap_page(d, 'data-bs-backdrop="static"')
-    r = resolve_file(page, resolve_linked=True, layer=False)
+    r = resolve_file(page, resolve_linked=True)
     css = _read(r.css_path)
     assert r.auto_safelist and r.notes and ".modal.show" in css and ".bs-tooltip-top" in css
     assert ".nope" not in css
@@ -397,7 +396,7 @@ def test_auto_safelist_applies_preset():
 def test_no_auto_safelist():
     d = _tmp()
     page = _bootstrap_page(d, 'data-bs-backdrop="static"')
-    r = resolve_file(page, resolve_linked=True, layer=False, auto_safelist=False)
+    r = resolve_file(page, resolve_linked=True, auto_safelist=False)
     assert not r.auto_safelist and ".modal.show" not in _read(r.css_path)
 
 
@@ -416,17 +415,40 @@ def test_cli_auto_safelist_note_printed_once():
 
 
 # ---------------------------------------------------------------------------
-# 3. Precedence: @layer wrapping, hoisting, --boost
+# 3. Precedence: no layer by default, boost by default, --layer opt-in
 # ---------------------------------------------------------------------------
 
 
-def test_layer_wraps_framework_and_inline_after():
+def test_no_layer_by_default():
+    out = resolve_stylesheet(".a{color:red!important}", {"a"}).css
+    assert "@layer" not in out and out == ".a {\n    color: red !important;\n}\n"
+
+
+def test_default_hoists_import_namespace_unchanged_drops_charset():
+    css = ('@charset "UTF-8";.a{color:red}@import url(base.css) screen;@import "x.css" layer(lib);'
+           '@namespace svg url(http://www.w3.org/2000/svg);')
+    lines = resolve_stylesheet(css, {"a"}).css.splitlines()
+    assert lines[:4] == [
+        '@import url("base.css") screen;',
+        '@import url("x.css") layer(lib);',
+        "@namespace svg url(http://www.w3.org/2000/svg);",
+        ".a {",
+    ]
+    assert "@charset" not in "\n".join(lines) and "inline2css" not in "\n".join(lines)
+
+
+def test_import_without_layer_keeps_url():
+    out = resolve_stylesheet('@import "x.css" print;.a{b:c}', {"a"}).css
+    assert out.splitlines()[0] == '@import url("x.css") print;'
+
+
+def test_layer_opt_in_wraps_framework_and_inline_after():
     d = _tmp()
     _write(os.path.join(d, "fw.css"), ".navbar-nav .nav-link{padding:8px}")
     page = os.path.join(d, "page.html")
     _write(page, '<html><head><link rel="stylesheet" href="fw.css"></head><body><ul class="navbar-nav">'
                  '<a class="nav-link" style="padding:0 40px">x</a></ul></body></html>')
-    r = resolve_file(page, resolve_linked=True)
+    r = resolve_file(page, resolve_linked=True, layer=True)
     css = _read(r.css_path)
     assert css.startswith(f"@layer {LAYER_NAME} {{")
     layer_end = css.index("\n}\n")
@@ -434,15 +456,10 @@ def test_layer_wraps_framework_and_inline_after():
     assert ".navbar-nav .nav-link" in css[:layer_end]
 
 
-def test_no_layer():
-    out = resolve_stylesheet(".a{color:red}", {"a"}, layer=False).css
-    assert "@layer" not in out
-
-
-def test_layer_hoists_import_namespace_drops_charset():
+def test_layer_opt_in_hoists_import_into_layer():
     css = ('@charset "UTF-8";@import url(base.css) screen;@import "x.css";'
            '@namespace svg url(http://www.w3.org/2000/svg);.a{color:red}')
-    out = resolve_stylesheet(css, {"a"}).css
+    out = resolve_stylesheet(css, {"a"}, layer=True).css
     assert "@charset" not in out
     lines = out.splitlines()
     assert lines[0] == f'@import url("base.css") layer({LAYER_NAME}) screen;'
@@ -451,17 +468,12 @@ def test_layer_hoists_import_namespace_drops_charset():
     assert lines[3] == f"@layer {LAYER_NAME} {{"
 
 
-def test_import_without_layer_keeps_url():
-    out = resolve_stylesheet('@import "x.css" print;.a{b:c}', {"a"}, layer=False).css
-    assert out.splitlines()[0] == '@import url("x.css") print;'
-
-
 def test_framework_important_survives_in_layer():
-    out = resolve_stylesheet(".a{color:red!important}", {"a"}).css
+    out = resolve_stylesheet(".a{color:red!important}", {"a"}, layer=True).css
     assert "color: red !important;" in out
 
 
-def _important_page(style, minify=False, layer=True, boost=False):
+def _important_page(style, minify=False, layer=False, boost=True):
     d = _tmp()
     _write(os.path.join(d, "fw.css"), ".a{color:blue!important;margin:0}")
     p = os.path.join(d, "page.html")
@@ -470,8 +482,17 @@ def _important_page(style, minify=False, layer=True, boost=False):
     return _read(resolve_file(p, resolve_linked=True, minify=minify, layer=layer, boost=boost).css_path)
 
 
-def test_inline_important_goes_to_important_layer():
+def test_inline_important_default_stays_in_boosted_rule():
     css = _important_page("color:red !important;padding:2px")
+    assert css == (
+        ".a {\n    color: blue !important;\n    margin: 0;\n}\n\n"
+        ".i2c-1:not(#\\#) {\n    color: red !important;\n    padding: 2px;\n}\n\n"
+        ".i2c-2:not(#\\#) {\n    margin: 1px!important;\n}\n"
+    )
+
+
+def test_inline_important_goes_to_important_layer_with_layer():
+    css = _important_page("color:red !important;padding:2px", layer=True, boost=False)
     assert css == (
         f"@layer {IMPORTANT_LAYER},{LAYER_NAME};\n"
         f"@layer {LAYER_NAME} {{\n    .a {{\n        color: blue !important;\n        margin: 0;\n    }}\n}}\n\n"
@@ -481,8 +502,8 @@ def test_inline_important_goes_to_important_layer():
     )
 
 
-def test_inline_important_minified_and_boosted():
-    css = _important_page("color:red !important;padding:2px", minify=True, boost=True)
+def test_inline_important_minified_layered_and_boosted():
+    css = _important_page("color:red !important;padding:2px", minify=True, layer=True)
     assert css == (
         f"@layer {IMPORTANT_LAYER},{LAYER_NAME};@layer {LAYER_NAME}{{.a{{color:blue!important;margin:0}}}}"
         r".i2c-1:not(#\#){padding:2px}"
@@ -495,23 +516,38 @@ def test_no_important_layer_without_inline_important():
     _write(os.path.join(d, "fw.css"), ".a{color:blue!important}")
     p = os.path.join(d, "page.html")
     _write(p, '<link rel="stylesheet" href="fw.css"><p class="a" style="padding:2px">x</p>')
-    css = _read(resolve_file(p, resolve_linked=True).css_path)
+    css = _read(resolve_file(p, resolve_linked=True, layer=True).css_path)
     assert IMPORTANT_LAYER not in css and css.startswith(f"@layer {LAYER_NAME} {{")
 
 
-def test_inline_important_unlayered_with_no_layer():
-    css = _important_page("color:red !important;padding:2px", layer=False)
-    assert "@layer" not in css and "color: red !important;" in css
-
-
-def test_boost_basic_mode():
+def test_boost_default_basic_mode():
     _, rules = convert('<p style="color:red">x</p>')
     assert render_stylesheet(rules, True, boost=True) == r".i2c-1:not(#\#){color:red}"
     d = _tmp()
     p = os.path.join(d, "page.html")
     _write(p, '<p style="color:red">x</p>')
-    r = convert_file(p, boost=True)
-    assert r".i2c-1:not(#\#) {" in _read(r.css_path)
+    r = convert_file(p)
+    assert _read(r.css_path) == ".i2c-1:not(#\\#) {\n    color: red;\n}\n"
+    assert 'class="i2c-1"' in _read(r.html_path)
+
+
+def test_no_boost_basic_mode_api_and_cli():
+    d = _tmp()
+    p = os.path.join(d, "page.html")
+    _write(p, '<p style="color:red">x</p>')
+    assert _read(convert_file(p, boost=False).css_path) == ".i2c-1 {\n    color: red;\n}\n"
+    code, _, _ = _cli(p, "--no-boost", "--minify")
+    assert code == 0 and _read(os.path.join(d, "styles.css")) == ".i2c-1{color:red}"
+    code, _, _ = _cli(p, "--minify")
+    assert code == 0 and _read(os.path.join(d, "styles.css")) == r".i2c-1:not(#\#){color:red}"
+
+
+def test_boost_flag_is_harmless_alias():
+    d = _tmp()
+    p = os.path.join(d, "page.html")
+    _write(p, '<p style="color:red">x</p>')
+    code, _, _ = _cli(p, "--boost", "--minify")
+    assert code == 0 and _read(os.path.join(d, "styles.css")) == r".i2c-1:not(#\#){color:red}"
 
 
 def test_boost_round_trips_through_merge():
@@ -519,13 +555,154 @@ def test_boost_round_trips_through_merge():
     assert reg.size() == 1
 
 
-def test_boost_resolve_mode():
+def test_merge_reads_boosted_and_plain_in_resolve_mode():
+    for boost in (True, False):
+        d = _tmp()
+        _write(os.path.join(d, "fw.css"), ".a{color:blue}")
+        p = os.path.join(d, "page.html")
+        _write(p, '<link rel="stylesheet" href="fw.css"><p class="a" style="color:red">x</p>'
+                  '<p style="margin:0">y</p>')
+        resolve_file(p, resolve_linked=True, boost=boost)
+        _write(p, '<link rel="stylesheet" href="fw.css"><p style="margin:0">y</p>'
+                  '<p style="padding:1px">z</p><p class="a" style="color:red">x</p>')
+        r = resolve_file(p, resolve_linked=True, boost=boost, merge=True)
+        html = _read(r.html_path)
+        assert '<p class="i2c-2">y</p>' in html and 'class="a i2c-1"' in html and 'class="i2c-3"' in html
+
+
+def test_boost_default_resolve_mode():
     d = _tmp()
     _write(os.path.join(d, "fw.css"), ".a{color:blue}")
     p = os.path.join(d, "page.html")
     _write(p, '<link rel="stylesheet" href="fw.css"><p class="a" style="color:red">x</p>')
-    r = resolve_file(p, resolve_linked=True, boost=True)
-    assert r".i2c-1:not(#\#)" in _read(r.css_path)
+    r = resolve_file(p, resolve_linked=True)
+    css = _read(r.css_path)
+    assert css == ".a {\n    color: blue;\n}\n\n.i2c-1:not(#\\#) {\n    color: red;\n}\n"
+    assert 'class="a i2c-1"' in _read(r.html_path)
+    r = resolve_file(p, resolve_linked=True, boost=False)
+    assert ".i2c-1 {" in _read(r.css_path)
+
+
+def test_cli_layer_opt_in_and_no_layer_removed():
+    d = _tmp()
+    _write(os.path.join(d, "fw.css"), ".a{color:blue}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<link rel="stylesheet" href="fw.css"><p class="a" style="color:red">x</p>')
+    code, _, _ = _cli(p, "--resolve-linked")
+    assert code == 0 and "@layer" not in _read(os.path.join(d, "styles.css"))
+    code, _, _ = _cli(p, "--resolve-linked", "--layer")
+    assert code == 0 and _read(os.path.join(d, "styles.css")).startswith(f"@layer {LAYER_NAME} {{")
+    code, _, err = _cli(p, "--resolve-linked", "--no-layer")
+    assert code == 2 and "unknown option" in err and "--no-layer" in err
+
+
+def test_pricing_regression_page_important_beats_framework_important():
+    """Bootstrap Pricing: the page's own <style>, after the Bootstrap link,
+    has a (0,3,0) !important rule that must keep beating .d-none's
+    !important. That needs the framework unlayered and the output link where
+    the Bootstrap link was, BEFORE the page <style>."""
+    d = _tmp()
+    _write(os.path.join(d, "bootstrap.css"), ".d-none{display:none!important}.unused{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><link href="bootstrap.css" rel="stylesheet">'
+              "<style>.menu .active .bi{display:block!important}</style></head>"
+              '<body><ul class="menu"><li class="active"><svg class="bi d-none"></svg></li></ul>'
+              '<p style="color:red">x</p></body></html>')
+    code, _, err = _cli(p, "--resolve-linked")
+    assert code == 0 and "warn:" not in err
+    html = _read(os.path.join(d, "page.cleaned.html"))
+    css = _read(os.path.join(d, "styles.css"))
+    assert "bootstrap.css" not in html
+    assert html.index('<link rel="stylesheet" href="styles.css">') < html.index("<style>")
+    assert html.index("<head>") < html.index("styles.css") < html.index("</head>")
+    assert "@layer" not in css and ".d-none {\n    display: none !important;\n}" in css
+    assert ".unused" not in css
+
+
+# ---------------------------------------------------------------------------
+# 3b. Output link position
+# ---------------------------------------------------------------------------
+
+
+def test_output_link_takes_first_removed_link_position():
+    d = _tmp()
+    _write(os.path.join(d, "fw.css"), ".a{color:red}")
+    _write(os.path.join(d, "fw2.css"), ".b{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><meta charset="utf-8"><link rel="stylesheet" href="fw.css">'
+              '<link rel="stylesheet" href="fw2.css"><style>.x{y:z}</style><link rel="icon" href="f.ico">'
+              '</head><body><p class="a b">x</p></body></html>')
+    r = resolve_file(p, resolve_linked=True)
+    html = _read(r.html_path)
+    assert ('<meta charset="utf-8"><link rel="stylesheet" href="styles.css"><style>.x{y:z}</style>'
+            '<link rel="icon" href="f.ico"></head>') in html
+    assert not [n for n in r.notes if n.startswith("warn:")]
+
+
+def test_output_link_position_in_body_parent():
+    d = _tmp()
+    _write(os.path.join(d, "fw.css"), ".a{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><title>t</title></head><body><div><link rel="stylesheet" href="fw.css"></div>'
+              '<p class="a">x</p></body></html>')
+    html = _read(resolve_file(p, resolve_linked=True).html_path)
+    assert '<div><link rel="stylesheet" href="styles.css"></div>' in html
+    assert html.count("styles.css") == 1
+
+
+def test_output_link_appended_when_nothing_removed():
+    d = _tmp()
+    _write(os.path.join(d, "vendor", "fw.css"), ".a{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><style>.x{y:z}</style><link rel="stylesheet" href="mine.css"></head>'
+              '<body><p class="a">x</p></body></html>')
+    _write(os.path.join(d, "mine.css"), ".m{n:o}")
+    r = resolve_file(p, resolve=[os.path.join(d, "vendor", "fw.css")])
+    html = _read(r.html_path)
+    assert html.endswith('<link rel="stylesheet" href="mine.css"><link rel="stylesheet" href="styles.css"></head>'
+                         '<body><p class="a">x</p></body></html>')
+
+
+def test_basic_mode_link_appended_to_head():
+    d = _tmp()
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><link rel="stylesheet" href="fw.css"><style>.x{y:z}</style></head>'
+              '<body><p style="color:red">x</p></body></html>')
+    html = _read(convert_file(p).html_path)
+    assert '<style>.x{y:z}</style><link rel="stylesheet" href="styles.css"></head>' in html
+    assert 'href="fw.css"' in html
+
+
+def test_non_contiguous_links_warn_once():
+    d = _tmp()
+    _write(os.path.join(d, "fw.css"), ".a{color:red}")
+    _write(os.path.join(d, "fw2.css"), ".b{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><link rel="stylesheet" href="fw.css"><style>.x{y:z}</style>'
+              '<link rel="stylesheet" href="fw2.css"></head><body><p class="a b">x</p></body></html>')
+    code, _, err = _cli(p, "--resolve-linked")
+    assert code == 0
+    warns = [l for l in err.splitlines() if l.startswith("warn:")]
+    assert len(warns) == 1 and "cascade order" in warns[0]
+    html = _read(os.path.join(d, "page.cleaned.html"))
+    assert '<head><link rel="stylesheet" href="styles.css"><style>.x{y:z}</style></head>' in html
+
+
+def test_non_contiguous_kept_link_between_warns():
+    d = _tmp()
+    _write(os.path.join(d, "vendor", "a.css"), ".a{color:red}")
+    _write(os.path.join(d, "vendor", "b.css"), ".b{color:red}")
+    p = os.path.join(d, "page.html")
+    _write(p, '<html><head><link rel="stylesheet" href="https://cdn.test/a.css"><link rel="stylesheet" href="mine.css">'
+              '<link rel="stylesheet" href="https://cdn.test/b.css"></head><body><p class="a b">x</p></body></html>')
+    r = resolve_file(p, resolve=[os.path.join(d, "vendor", "a.css"), os.path.join(d, "vendor", "b.css")])
+    assert len([n for n in r.notes if n.startswith("warn:")]) == 1
+    assert _links(_read(r.html_path)) == ["styles.css", "mine.css"]
+    # A non-stylesheet link in between (icon) is not a sheet: no warning.
+    _write(p, '<html><head><link rel="stylesheet" href="https://cdn.test/a.css"><link rel="icon" href="f.ico">'
+              '<link rel="stylesheet" href="https://cdn.test/b.css"></head><body><p class="a b">x</p></body></html>')
+    r = resolve_file(p, resolve=[os.path.join(d, "vendor", "a.css"), os.path.join(d, "vendor", "b.css")])
+    assert not [n for n in r.notes if n.startswith("warn:")]
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +779,7 @@ def test_url_rewrite_local_different_dir():
     d = _tmp()
     src = os.path.join(d, "vendor", "css", "fw.css")
     _write(src, _URL_CSS)
-    out = resolve_stylesheet(_read(src), {"a"}, source=src, css_out=os.path.join(d, "site", "styles.css"), layer=False).css
+    out = resolve_stylesheet(_read(src), {"a"}, source=src, css_out=os.path.join(d, "site", "styles.css")).css
     assert 'url("../vendor/css/img/a.png")' in out
     assert 'url("../vendor/m.svg#x")' in out
     for keep in ("url(data:image/png;base64,AA)", "url(https://x.test/y.png)", "url(//cdn.test/z.png)",
@@ -614,12 +791,12 @@ def test_url_rewrite_local_different_dir():
 def test_url_rewrite_same_dir_untouched():
     d = _tmp()
     src = os.path.join(d, "fw.css")
-    out = resolve_stylesheet(_URL_CSS, {"a"}, source=src, css_out=os.path.join(d, "styles.css"), layer=False).css
+    out = resolve_stylesheet(_URL_CSS, {"a"}, source=src, css_out=os.path.join(d, "styles.css")).css
     assert "url(img/a.png)" in out
 
 
 def test_url_rewrite_http_source_absolute():
-    out = resolve_stylesheet(_URL_CSS, {"a"}, source="https://cdn.test/lib/css/fw.css", layer=False).css
+    out = resolve_stylesheet(_URL_CSS, {"a"}, source="https://cdn.test/lib/css/fw.css").css
     assert 'url("https://cdn.test/lib/css/img/a.png")' in out
     assert 'url("https://cdn.test/lib/m.svg#x")' in out
     assert "url(data:image/png;base64,AA)" in out
@@ -675,7 +852,7 @@ def test_link_removal_resolve_linked():
     _write(p, '<html><head><link rel="stylesheet" href="fw.css"><link rel="stylesheet" href="theme.css">'
               '<link rel="icon" href="f.ico"></head><body><p class="a b">x</p></body></html>')
     r = resolve_file(p, resolve_linked=True)
-    assert _links(_read(r.html_path)) == ["f.ico", "styles.css"]
+    assert _links(_read(r.html_path)) == ["styles.css", "f.ico"]
     css = _read(r.css_path)
     assert ".a" in css and ".b" in css
 
@@ -687,7 +864,7 @@ def test_link_removal_explicit_basename_query_stripped():
     _write(p, '<html><head><link rel="stylesheet" href="https://cdn.test/x/bootstrap.min.css?v=5">'
               '<link rel="stylesheet" href="mine.css"></head><body><p class="a">x</p></body></html>')
     r = resolve_file(p, resolve=[os.path.join(d, "vendor", "bootstrap.min.css")])
-    assert _links(_read(r.html_path)) == ["mine.css", "styles.css"]
+    assert _links(_read(r.html_path)) == ["styles.css", "mine.css"]
 
 
 def test_link_not_duplicated_when_output_already_linked():
@@ -714,7 +891,7 @@ def test_resolve_directory():
            '<html><head><link rel="stylesheet" href="../../fw.css"></head><body><p class="b" style="margin: 1px">x</p></body></html>')
     _write(os.path.join(d, "site", "node_modules", "n.html"), '<p class="c">x</p>')
     _write(os.path.join(d, "site", ".hidden", "h.html"), '<p class="c">x</p>')
-    r = resolve_directory(os.path.join(d, "site"), resolve_linked=True, safelist=["safe"], layer=False)
+    r = resolve_directory(os.path.join(d, "site"), resolve_linked=True, safelist=["safe"])
     css = _read(r.css_path)
     assert ".a" in css and ".b" in css and ".safe" in css and ".c" not in css
     assert r.inline_rules == 1 and css.count(".i2c-1") == 1 and ".i2c-2" not in css
@@ -752,8 +929,23 @@ def test_pretty_printer_keeps_strings_and_urls_intact():
     assert len(lines) == 6
 
 
+def test_custom_property_values_kept_verbatim():
+    # getComputedStyle().getPropertyValue("--x") returns the source text, so
+    # inner whitespace, newlines and comments must survive (Tailwind 4 theme).
+    css = ':root{--font: a, "B C",\n      d;--x: 1 /* c */ 2;--y:   lead  ;--u:url(i.png)  z;color:  red   /*x*/ }'
+    out = _resolve(css, set()).css
+    assert '    --font: a, "B C",\n      d;' in out
+    assert "--x: 1 /* c */ 2;" in out and "--y: lead;" in out and "color: red;" in out
+    d = _tmp()
+    out = _resolve(":root{--u:url(i.png)  z}", set(), source=os.path.join(d, "v", "fw.css"),
+                   css_out=os.path.join(d, "styles.css")).css
+    assert '--u: url("v/i.png")  z;' in out
+
+
 def test_minified_resolve():
     out = resolve_stylesheet("@media (x){.a{color:red;margin:0}}", {"a"}, minify=True).css
+    assert out == "@media (x){.a{color:red;margin:0}}"
+    out = resolve_stylesheet("@media (x){.a{color:red;margin:0}}", {"a"}, minify=True, layer=True).css
     assert out == f"@layer {LAYER_NAME}{{@media (x){{.a{{color:red;margin:0}}}}}}"
 
 
@@ -771,7 +963,7 @@ def test_cli_version():
     for flag in ("--version", "-v"):
         code, out, _ = _cli(flag)
         assert code == 0 and out.strip() == __version__
-    assert __version__ == "1.1.0"
+    assert __version__ == "1.1.1"
 
 
 def test_cli_help_lists_flags():
@@ -779,8 +971,9 @@ def test_cli_help_lists_flags():
     assert code == 0
     for flag in ("--css", "--html-out", "--naming", "--prefix", "--minify", "--merge", "--in-place",
                  "--dry-run", "--resolve", "--resolve-linked", "--safelist", "--safelist-preset",
-                 "--no-auto-safelist", "--no-layer", "--boost", "--keep-all-at-rules", "--version"):
+                 "--no-auto-safelist", "--layer", "--no-boost", "--keep-all-at-rules", "--version"):
         assert flag in out, flag
+    assert "--no-layer" not in out
     assert "\u2014" not in out
 
 
@@ -832,7 +1025,7 @@ def test_cli_module_entrypoint():
     env = dict(os.environ, PYTHONPATH=os.path.abspath(src))
     res = subprocess.run([sys.executable, "-m", "inline2css.cli", "--version"],
                          capture_output=True, text=True, env=env)
-    assert res.returncode == 0 and "1.1.0" in res.stdout
+    assert res.returncode == 0 and "1.1.1" in res.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -843,9 +1036,14 @@ def test_cli_module_entrypoint():
 def test_output_order():
     d = _tmp()
     _write(os.path.join(d, "fw.css"), '@charset "UTF-8";.a{color:red}@namespace url(x);@import "y.css";')
+    _write(os.path.join(d, "fw2.css"), ".b{color:green}")
     p = os.path.join(d, "page.html")
-    _write(p, '<link rel="stylesheet" href="fw.css"><p class="a" style="color:blue">x</p>')
+    _write(p, '<link rel="stylesheet" href="fw.css"><link rel="stylesheet" href="fw2.css">'
+              '<p class="a b" style="color:blue">x</p>')
     css = _read(resolve_file(p, resolve_linked=True).css_path)
+    assert css == ('@import url("y.css");\n@namespace url(x);\n.a {\n    color: red;\n}\n.b {\n    color: green;\n}\n\n'
+                   '.i2c-1:not(#\\#) {\n    color: blue;\n}\n')
+    css = _read(resolve_file(p, resolve_linked=True, layer=True).css_path)
     i_imp, i_ns = css.index("@import"), css.index("@namespace")
     i_layer, i_inline = css.index(f"@layer {LAYER_NAME}"), css.index(".i2c-1")
     assert i_imp < i_ns < i_layer < i_inline

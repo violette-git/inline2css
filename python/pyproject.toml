@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "inline2css"
-version = "1.1.0"
+version = "1.1.1"
 description = "Extract inline HTML style attributes into an external stylesheet and strip them from the markup."
 readme = "README.md"
 requires-python = ">=3.8"

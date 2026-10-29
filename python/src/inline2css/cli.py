@@ -27,7 +27,8 @@ EPILOG = """examples:
   inline2css page.html --resolve-linked
   inline2css page.html --resolve bootstrap.min.css --safelist /^tooltip/
   inline2css site/ --resolve https://cdn.example.com/bootstrap.min.css
-  inline2css page.html --boost          (keep the framework linked yourself)"""
+  inline2css page.html --no-boost       (plain .i2c-1 selectors)
+  inline2css page.html --resolve-linked --layer   (opt-in @layer mode)"""
 
 
 class _Parser(argparse.ArgumentParser):
@@ -65,10 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     g.add_argument("--prefix", default="i2c-", help="Class prefix (default: i2c-)")
     g.add_argument(
-        "--boost", action="store_true",
-        help="Emit extracted selectors as .i2c-1:not(#\\#) (one extra id of specificity) so "
-             "they beat framework classes when the framework stays linked separately. Default off.",
+        "--no-boost", dest="boost", action="store_false",
+        help="Write plain .i2c-1 selectors. By default extracted rules are written as "
+             ".i2c-1:not(#\\#), which adds one id of specificity so they win over class rules "
+             "the way the inline styles did (any !important rule still wins, as before).",
     )
+    g.add_argument("--boost", dest="boost", action="store_true", help=argparse.SUPPRESS)
+    p.set_defaults(boost=True)
 
     g = p.add_argument_group("resolve mode")
     g.add_argument(
@@ -95,9 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
              "or uses data-bs-* attributes",
     )
     g.add_argument(
-        "--no-layer", action="store_true",
-        help="Do not wrap framework CSS in @layer inline2css-framework (by default the layer makes "
-             "extracted inline styles win over framework rules, like real inline styles)",
+        "--layer", action="store_true",
+        help="Opt-in: wrap the resolved framework CSS in @layer inline2css-framework (and inline "
+             "!important declarations in @layer inline2css-important). Caveat: a layered !important "
+             "beats every unlayered !important, so this changes how framework !important rules "
+             "interact with your own CSS. Default off.",
     )
     g.add_argument(
         "--keep-all-at-rules", action="store_true",
@@ -144,7 +150,7 @@ def main(argv=None) -> int:
             safelist=args.safelist,
             safelist_preset=args.safelist_preset,
             auto_safelist=not args.no_auto_safelist,
-            layer=not args.no_layer,
+            layer=args.layer,
             boost=args.boost,
             keep_all_at_rules=args.keep_all_at_rules,
         )

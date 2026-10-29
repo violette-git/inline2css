@@ -260,13 +260,16 @@ def make_url_rewriter(source: Optional[str], css_out: Optional[str]) -> Optional
     return local
 
 
-def _norm(tokens, url_fn) -> list:
+def _norm(tokens, url_fn, raw: bool = False) -> list:
+    """Copy tokens, rewriting url()s with ``url_fn``. Comments are dropped and
+    whitespace runs collapse to one space, unless ``raw`` (custom property
+    values, whose computed value is their exact source text)."""
     out: list = []
     for t in tokens:
         kind = t.type
-        if kind == "comment":
+        if kind == "comment" and not raw:
             continue
-        if kind == "whitespace":
+        if kind == "whitespace" and not raw:
             if out and out[-1].type == "whitespace":
                 continue
             out.append(_WS)
@@ -284,19 +287,19 @@ def _norm(tokens, url_fn) -> list:
                     args = [css_ast.StringToken(a.source_line, a.source_column, url_fn(a.value),
                                                 '"%s"' % tinycss2.serializer.serialize_string_value(url_fn(a.value)))
                             if a.type == "string" else a for a in args]
-            t = css_ast.FunctionBlock(t.source_line, t.source_column, t.name, _norm(args, url_fn))
+            t = css_ast.FunctionBlock(t.source_line, t.source_column, t.name, _norm(args, url_fn, raw))
         elif kind == "() block":
-            t = css_ast.ParenthesesBlock(t.source_line, t.source_column, _norm(t.content, url_fn))
+            t = css_ast.ParenthesesBlock(t.source_line, t.source_column, _norm(t.content, url_fn, raw))
         elif kind == "[] block":
-            t = css_ast.SquareBracketsBlock(t.source_line, t.source_column, _norm(t.content, url_fn))
+            t = css_ast.SquareBracketsBlock(t.source_line, t.source_column, _norm(t.content, url_fn, raw))
         elif kind == "{} block":
-            t = css_ast.CurlyBracketsBlock(t.source_line, t.source_column, _norm(t.content, url_fn))
+            t = css_ast.CurlyBracketsBlock(t.source_line, t.source_column, _norm(t.content, url_fn, raw))
         out.append(t)
     return out
 
 
-def _ser(tokens, url_fn=None) -> str:
-    return tinycss2.serialize(_norm(tokens, url_fn)).strip()
+def _ser(tokens, url_fn=None, raw: bool = False) -> str:
+    return tinycss2.serialize(_norm(tokens, url_fn, raw)).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +344,12 @@ class _Ctx:
 
 
 def _decl(node, url_fn) -> Decl:
-    value = _ser(node.value, url_fn)
-    if not value and node.name.startswith("--"):
+    # A custom property's computed value is its source text (only leading and
+    # trailing whitespace trimmed): keep inner whitespace, newlines and
+    # comments so getPropertyValue() returns exactly what it did before.
+    custom = node.name.startswith("--")
+    value = _ser(node.value, url_fn, raw=custom)
+    if not value and custom:
         value = " "
     return Decl(node.name, value, node.important)
 
@@ -700,12 +707,12 @@ def resolve_stylesheet(
     *,
     safelist: Iterable[Union[str, "re.Pattern"]] = (),
     minify: bool = False,
-    layer: bool = True,
+    layer: bool = False,
     keep_all_at_rules: bool = False,
     source: Optional[str] = None,
     css_out: Optional[str] = None,
     inline_rules: Sequence = (),
-    boost: bool = False,
+    boost: bool = True,
     keep_element_selectors: bool = True,
 ) -> ResolveResult:
     """Tree-shake ``css`` down to the rules that can match the class pool.
@@ -716,11 +723,21 @@ def resolve_stylesheet(
     names (or a ClassPool); ``safelist`` entries are added to it.
     ``keep_element_selectors=False`` also drops selectors with no class
     requirement (body, :root, a:hover).
-    ``inline_rules`` (core.Rule objects) are emitted after the framework
-    block, unlayered, and count as references for @keyframes / @font-face.
-    With ``layer`` on, their !important declarations instead go last, into
+    Output order: hoisted @import / @namespace, then the framework rules in
+    source order, then ``inline_rules`` (core.Rule objects), which also count
+    as references for @keyframes / @font-face.
+
+    ``boost`` (default on) writes extracted selectors as ``.i2c-1:not(#\\#)``
+    so they carry one id of specificity, like the inline styles they replace.
+    By default nothing is layered (framework CSS stays unlayered, as it was
+    when linked). ``layer=True`` is opt-in: it wraps the framework in
+    ``@layer inline2css-framework`` (adding ``layer(...)`` to hoisted
+    @import rules) and moves extracted !important declarations into
     ``@layer inline2css-important``, which a leading
     ``@layer inline2css-important,inline2css-framework;`` orders first.
+    Caveat: a layered !important beats every unlayered !important, so the
+    layer changes how framework !important rules interact with the page's
+    own CSS.
     """
     from collections import OrderedDict
 
@@ -754,10 +771,11 @@ def resolve_stylesheet(
     if layer and _has_content(items):
         body = [AtRule("layer", LAYER_NAME, items)]
 
-    # With layering on, extracted !important declarations go to a layer that
-    # is ordered BEFORE the framework layer: for important declarations the
-    # earlier layer wins, which is how an inline !important beat framework
-    # !important. Normal declarations stay unlayered after the framework.
+    # Opt-in layering only: extracted !important declarations go to a layer
+    # ordered BEFORE the framework layer (for important declarations the
+    # earlier layer wins, as an inline !important beat framework !important).
+    # Normal declarations stay unlayered after the framework. Without the
+    # layer, important inline declarations stay in their (boosted) rule.
     normal_rules = list(inline_rules)
     important_items: list = []
     if layer:

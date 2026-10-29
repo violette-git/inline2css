@@ -42,7 +42,7 @@ from .resolve import (
     selector_is_used,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = [
     "BOOTSTRAP_SAFELIST",
@@ -173,9 +173,11 @@ def convert_file(
     merge: bool = False,
     in_place: bool = False,
     dry_run: bool = False,
-    boost: bool = False,
+    boost: bool = True,
 ) -> FileResult:
-    """Extract the inline styles of one HTML file into a stylesheet."""
+    """Extract the inline styles of one HTML file into a stylesheet.
+    ``boost`` (default on) writes selectors as ``.i2c-1:not(#\\#)`` so they
+    are as strong as the inline styles they replace; False writes ``.i2c-1``."""
     with open(input_path, encoding="utf-8") as fh:
         html = fh.read()
 
@@ -207,7 +209,7 @@ def convert_directory(
     merge: bool = False,
     in_place: bool = False,
     dry_run: bool = False,
-    boost: bool = False,
+    boost: bool = True,
 ) -> DirResult:
     """Extract inline styles from every .html/.htm file under ``directory``
     into one shared, deduplicated stylesheet."""
@@ -280,21 +282,39 @@ class _SourceSet:
         return True
 
 
-def _rewrite_links(soup, new_href: str, remove) -> None:
+def _is_sheet(tag) -> bool:
+    """A <style> element or a <link rel=stylesheet>: anything that adds CSS
+    to the cascade at its position in the document."""
+    return tag.name == "style" or (tag.name == "link" and _is_stylesheet_link(tag))
+
+
+def _rewrite_links(soup, new_href: str, remove) -> bool:
     """Remove folded-in <link rel=stylesheet> tags (``remove(href)`` decides)
-    and append one link to the output stylesheet at the end of <head> unless
-    it is already linked. Last in <head> means the unlayered extracted rules
-    follow any other stylesheet the page keeps, as real inline styles did."""
-    for tag in soup.find_all("link"):
-        if not _is_stylesheet_link(tag):
-            continue
-        href = tag["href"]
-        if href == new_href:
-            continue
-        if remove(href):
+    and put one link to the output stylesheet where the FIRST removed link
+    was (same parent, same place), so any <style> or <link> the page keeps
+    after the framework still comes after it in the cascade. When nothing was
+    removed, the link is appended to the end of <head>. Nothing is added if
+    the output stylesheet is already linked.
+
+    Returns True when the removed links were not contiguous, that is when a
+    <style> or a kept stylesheet <link> sat between two of them: the kept
+    sheet now follows all of the folded CSS, so the cascade order changed."""
+    sheets = [t for t in soup.find_all(["link", "style"]) if _is_sheet(t)]
+    removed_idx = [i for i, t in enumerate(sheets)
+                   if t.name == "link" and t["href"] != new_href and remove(t["href"])]
+    non_contiguous = bool(removed_idx) and (removed_idx[-1] - removed_idx[0] + 1) != len(removed_idx)
+    already = soup.find("link", href=new_href) is not None
+    first = True
+    for i in removed_idx:
+        tag = sheets[i]
+        if first and not already:
+            tag.replace_with(soup.new_tag("link", rel="stylesheet", href=new_href))
+            already = True
+        else:
             tag.decompose()
-    if soup.find("link", href=new_href) is not None:
-        return
+        first = False
+    if already:
+        return non_contiguous
     link = soup.new_tag("link", rel="stylesheet", href=new_href)
     head = soup.find("head")
     if head is None:
@@ -302,6 +322,15 @@ def _rewrite_links(soup, new_href: str, remove) -> None:
         html_tag = soup.find("html")
         (html_tag or soup).insert(0, head)
     head.append(link)
+    return non_contiguous
+
+
+def _non_contiguous_warning(page: str, css_path: str) -> str:
+    return (
+        f"warn: {page}: the folded-in stylesheet links were not next to each other (a <style> or "
+        f"another <link> sat between them); {os.path.basename(css_path)} now sits at the first one, "
+        "so the cascade order between those sheets changed"
+    )
 
 
 def _remover(resolve_linked: bool, explicit: Sequence[str], folded_keys: set, page_dir: str):
@@ -393,10 +422,12 @@ def _resolve_pages(
     )
 
     html_out: List[str] = []
+    warnings: List[str] = []
     for path, soup, out, keys in zip(pages, soups, out_paths, folded):
         href = os.path.relpath(css_path, os.path.dirname(os.path.abspath(out))).replace(os.sep, "/")
         page_dir = os.path.dirname(os.path.abspath(path))
-        _rewrite_links(soup, href, _remover(resolve_linked, list(resolve or ()), keys, page_dir))
+        if _rewrite_links(soup, href, _remover(resolve_linked, list(resolve or ()), keys, page_dir)):
+            warnings.append(_non_contiguous_warning(path, css_path))
         html_out.append(serialize_soup(soup))
 
     if not dry_run:
@@ -404,7 +435,7 @@ def _resolve_pages(
         for out, text in zip(out_paths, html_out):
             _write(out, text)
 
-    notes = [AUTO_SAFELIST_NOTE] if auto else []
+    notes = ([AUTO_SAFELIST_NOTE] if auto else []) + warnings
     return result, inline_rules, auto, [o for _, o in sources.loaded], notes
 
 
@@ -424,15 +455,18 @@ def resolve_file(
     safelist: Iterable[Union[str, "object"]] = (),
     safelist_preset: Union[str, Sequence[str], None] = (),
     auto_safelist: bool = True,
-    layer: bool = True,
-    boost: bool = False,
+    layer: bool = False,
+    boost: bool = True,
     keep_all_at_rules: bool = False,
     cwd: Optional[str] = None,
 ) -> ResolveFileResult:
     """Extract inline styles AND tree-shake the framework stylesheets in
     ``resolve`` (paths relative to ``cwd`` or URLs) and, with
     ``resolve_linked``, the page's own <link rel=stylesheet> sheets, into one
-    output stylesheet. Folded-in links are replaced by one link to it."""
+    output stylesheet. Folded-in links are replaced by one link to it, placed
+    where the first folded-in link was. ``boost`` (default on) gives the
+    extracted rules one id of specificity; ``layer`` (default off) is the
+    opt-in @layer mode. Warnings (non-contiguous links) are in ``notes``."""
     css_path = css or os.path.join(os.path.dirname(input_path), "styles.css")
     out = input_path if in_place else (html_out or _cleaned_path(input_path))
     result, inline_rules, auto, srcs, notes = _resolve_pages(
@@ -463,8 +497,8 @@ def resolve_directory(
     safelist: Iterable[Union[str, "object"]] = (),
     safelist_preset: Union[str, Sequence[str], None] = (),
     auto_safelist: bool = True,
-    layer: bool = True,
-    boost: bool = False,
+    layer: bool = False,
+    boost: bool = True,
     keep_all_at_rules: bool = False,
     cwd: Optional[str] = None,
 ) -> ResolveDirResult:
