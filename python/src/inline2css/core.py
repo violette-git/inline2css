@@ -94,19 +94,25 @@ def make_class_name(decls, key, naming, prefix, seq) -> str:
     return f"{prefix}{seq}"
 
 
-def render_rule(class_name, decls, minify=False) -> str:
+BOOST_SUFFIX = r":not(#\#)"
+
+
+def render_rule(class_name, decls, minify=False, boost=False) -> str:
+    """Render one rule. ``boost`` appends ``:not(#\\#)``, which adds one id
+    worth of specificity so the rule beats framework class selectors."""
+    selector = f".{class_name}{BOOST_SUFFIX if boost else ''}"
     if minify:
         body = ";".join(f"{p}:{v}" for p, v in decls.items())
-        return f".{class_name}{{{body}}}"
+        return f"{selector}{{{body}}}"
     body = "\n".join(f"    {p}: {v};" for p, v in decls.items())
-    return f".{class_name} {{\n{body}\n}}"
+    return f"{selector} {{\n{body}\n}}"
 
 
-def render_stylesheet(rules: List[Rule], minify=False) -> str:
+def render_stylesheet(rules: List[Rule], minify=False, boost=False) -> str:
     if not rules:
         return ""
     sep = "" if minify else "\n\n"
-    css = sep.join(render_rule(r.class_name, r.decls, minify) for r in rules)
+    css = sep.join(render_rule(r.class_name, r.decls, minify, boost) for r in rules)
     return css if minify else css + "\n"
 
 
@@ -165,6 +171,8 @@ def parse_existing_css(css: str) -> Registry:
     registry = Registry()
     for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
         selector = m.group(1).strip()
+        if selector.endswith(BOOST_SUFFIX):
+            selector = selector[: -len(BOOST_SUFFIX)]
         single = re.fullmatch(r"\.([A-Za-z_][-\w]*)", selector)
         if not single:
             continue

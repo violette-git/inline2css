@@ -88,14 +88,24 @@ function makeClassName(decls, key, strategy, prefix, seq) {
   return `${prefix}${seq}`;
 }
 
-/** Render one CSS rule, optionally minified. */
-function renderRule(className, decls, minify) {
+/**
+ * Suffix that adds one id of specificity without changing what matches:
+ * `#\#` is an id selector no element has, so `:not(#\#)` always matches.
+ */
+const BOOST_SUFFIX = ':not(#\\#)';
+
+/**
+ * Render one CSS rule, optionally minified. With `boost`, the selector gets
+ * BOOST_SUFFIX so it beats ordinary framework class selectors.
+ */
+function renderRule(className, decls, minify, boost = false) {
+  const sel = `.${className}${boost ? BOOST_SUFFIX : ''}`;
   if (minify) {
     const body = decls.map((d) => `${d.prop}:${d.value}`).join(';');
-    return `.${className}{${body}}`;
+    return `${sel}{${body}}`;
   }
   const body = decls.map((d) => `    ${d.prop}: ${d.value};`).join('\n');
-  return `.${className} {\n${body}\n}`;
+  return `${sel} {\n${body}\n}`;
 }
 
 /**
@@ -167,15 +177,22 @@ function convert(html, opts = {}) {
   return { html: $.html(), rules };
 }
 
-/** Build a stylesheet string from collected rules. */
-function renderStylesheet(rules, minify = false) {
+/**
+ * Build a stylesheet string from collected rules.
+ * @param {Array<{className:string, decls:Array}>} rules
+ * @param {boolean} [minify=false]
+ * @param {{boost?: boolean}} [opts]
+ */
+function renderStylesheet(rules, minify = false, opts = {}) {
   if (rules.length === 0) return '';
   const sep = minify ? '' : '\n\n';
-  const css = rules.map((r) => renderRule(r.className, r.decls, minify)).join(sep);
+  const boost = !!(opts && opts.boost);
+  const css = rules.map((r) => renderRule(r.className, r.decls, minify, boost)).join(sep);
   return minify ? css : css + '\n';
 }
 
 module.exports = {
+  BOOST_SUFFIX,
   parseDeclarations,
   canonical,
   makeClassName,
