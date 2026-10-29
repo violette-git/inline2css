@@ -127,3 +127,9 @@ test('convertDirectory shares one stylesheet across files', () => {
   assert.strictEqual(r.ruleCount, 1); // deduped across both files
   assert.strictEqual(r.files.length, 2);
 });
+
+test('parseExistingCss reads boosted selectors so --merge --boost reuses them', () => {
+  const reg = parseExistingCss('.brand:not(#\\#) { color: red; }');
+  assert.strictEqual(reg.size, 1);
+  assert.strictEqual(Array.from(reg.values())[0].className, 'brand');
+});

@@ -133,7 +133,8 @@ function parseExistingCss(css) {
   while ((m = ruleRe.exec(css)) !== null) {
     const selector = m[1].trim();
     const body = m[2].trim();
-    const single = /^\.([A-Za-z_][-\w]*)$/.exec(selector);
+    // Also accept a boosted selector (.name:not(#\#)) written by --boost.
+    const single = /^\.([A-Za-z_][-\w]*)(?::not\(#\\#\))?$/.exec(selector);
     if (!single) continue;
     const decls = parseDeclarations(body);
     if (decls.length === 0) continue;
@@ -312,11 +313,12 @@ async function resolvePages(files, opts, cssPath, htmlOutFor) {
       for (const el of stylesheetLinks(page.$)) {
         const href = page.$(el).attr('href');
         if (!href || href === page.cssHref) continue;
-        const key = isHttp(href) ? href : path.resolve(path.dirname(page.file), href.split(/[?#]/)[0]);
+        const url = href.startsWith('//') ? `https:${href}` : href; // protocol-relative CDN links
+        const key = isHttp(url) ? url : path.resolve(path.dirname(page.file), url.split(/[?#]/)[0]);
         if (key === path.resolve(cssPath) || seen.has(key)) continue;
         seen.add(key);
         try {
-          sources.push(await loadCss(isHttp(href) ? href : key, process.cwd()));
+          sources.push(await loadCss(key, process.cwd()));
         } catch (e) {
           note(opts, `warn: could not load linked sheet ${href}: ${e.message}`);
         }

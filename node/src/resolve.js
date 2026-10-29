@@ -339,10 +339,17 @@ function pruneDeadAtRules(ast, extraDecls) {
       animTokens.add(unescapeCssIdent(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]));
     }
   }
+  // Each comma piece of a font / font-family value yields its quoted names
+  // plus the unquoted remainder (the shorthand `16px/1.5"Brand Sans"` has no
+  // space before the string once generated, so quotes are split out first).
   const families = [];
   for (const v of usage.font) {
     for (const piece of expandVars(v, usage.customProps).split(',')) {
-      families.push(normFamily(piece));
+      const rest = piece.replace(/"([^"]*)"|'([^']*)'/g, (_, dq, sq) => {
+        families.push(normFamily(dq !== undefined ? dq : sq));
+        return ' ';
+      });
+      families.push(normFamily(rest));
     }
   }
   const familyUsed = (name) =>
